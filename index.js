@@ -1596,7 +1596,7 @@ const MSG = {
     welcome: (nama) =>
         `👋 Halo *${nama}*! Selamat datang di *Finance Tracker Bot* 🤖\n\n` +
         `Catat semua transaksi kamu dengan mudah!\n\n` +
-        `🌐 *Web Dashboard:* http://localhost:3000\n\n` +
+        `🌐 *Web Dashboard:* https://wa-finance-tracker-dashboard.vercel.app\n\n` +
         MSG._menuList(),
 
     menu: () => `📋 *MENU UTAMA*\n━━━━━━━━━━━━━━━━━\n` + MSG._menuList(),
@@ -1615,8 +1615,7 @@ const MSG = {
         `🌐  *11. Web Dashboard*\n` +
         `━━━━━━━━━━━━━━━━━\n` +
         `_Balas angka 1-11 atau ketik perintah_\n\n` +
-        `💻 *Akses Web:* http://localhost:3000\n` +
-        `📱 *Akses HP:* Gunakan IP PC (satu Wi-Fi)`,
+        `💻 *Akses Web:* https://wa-finance-tracker-dashboard.vercel.app`,
 
     chooseTipe: () =>
         `💳 *Catat Transaksi*\n━━━━━━━━━━━━━━━━━\n` +
@@ -2128,7 +2127,7 @@ client.on('message', async msg => {
             );
         }
         if (['11','dashboard','web'].includes(lower)) {
-            return msg.reply(`🌐 *Web Dashboard Finance Tracker*\n━━━━━━━━━━━━━━━━━\n\nUntuk akses dari browser:\n👉 http://localhost:3000\n\n💡 *Akses dari HP (Satu Wi-Fi):*\n1. Cek IP Laptop kamu (ketik *ipconfig* di CMD)\n2. Buka di browser HP: *http://[IP-KAMU]:3000*\n\n_Gunakan nomor WA kamu untuk masuk._`);
+            return msg.reply(`🌐 *Web Dashboard Finance Tracker*\n━━━━━━━━━━━━━━━━━\n\nDashboard kamu sekarang online! Buka link berikut dari browser PC atau HP:\n\n👉 https://wa-finance-tracker-dashboard.vercel.app\n\n_Gunakan nomor WA kamu untuk masuk._`);
         }
         return msg.reply(`❓ Pilih 1-11.\n\n${MSG.menu()}`);
     }
