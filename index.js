@@ -251,28 +251,72 @@ async function addUserCategory(waNumber, nama, emoji = '🏷️') {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// KNN DATASET
+// ML ENGINE v2 — TF-IDF + KNN Voting + Feedback Learning
 // ═══════════════════════════════════════════════════════════════
-let knnDataset  = [];
-let lastKnnLoad = 0;
-const KNN_CACHE_MS = 5 * 60 * 1000;
 
-async function loadKnnDataset() {
-    const now = Date.now();
-    if (knnDataset.length > 0 && (now - lastKnnLoad) < KNN_CACHE_MS) return;
-    const { data, error } = await supabase.from('knn_dataset')
-        .select('nama_toko, keyword_utama, kategori, sub_kategori');
-    if (error) { console.error('❌ KNN load error:', error.message); return; }
-    knnDataset = (data || []).map(r => ({
-        namaToko: (r.nama_toko     || '').toLowerCase().trim(),
-        keyword:  (r.keyword_utama || '').toLowerCase().trim(),
-        kategori:  r.kategori      || 'Lain-lain',
-        sub:       r.sub_kategori  || 'Uncategorized',
-    }));
-    lastKnnLoad = now;
-    console.log(`📚 KNN: ${knnDataset.length} entri`);
+let knnDataset   = [];
+let lastKnnLoad  = 0;
+let idfMap       = {};       // IDF weights per token
+let feedbackCache = {};      // wa_number → [{toko, kategori, sub}]
+const KNN_CACHE_MS = 5 * 60 * 1000;
+const KNN_K        = 5;      // top-K neighbors untuk voting
+
+// ── STOP WORDS Indonesia + Umum ────────────────────────────────
+const STOP_WORDS = new Set([
+    'di','dan','ke','yang','ini','itu','dengan','untuk','dari','dalam',
+    'atau','juga','akan','ada','tidak','bisa','kita','kami','saya','anda',
+    'the','a','an','of','in','at','by','to','for','on','is','are','was',
+    'toko','warung','kedai','gerai','cabang','outlet','pusat','pt','cv','tb',
+]);
+
+// ── TOKENIZER ──────────────────────────────────────────────────
+function tokenize(text) {
+    return (text || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .split(/\s+/)
+        .filter(t => t.length > 1 && !STOP_WORDS.has(t));
 }
 
+// ── BUILD IDF dari dataset ──────────────────────────────────────
+function buildIDF(dataset) {
+    const N = dataset.length;
+    const df = {};
+    for (const row of dataset) {
+        const tokens = new Set([...tokenize(row.namaToko), ...tokenize(row.keyword)]);
+        for (const t of tokens) df[t] = (df[t] || 0) + 1;
+    }
+    const idf = {};
+    for (const [t, freq] of Object.entries(df)) {
+        idf[t] = Math.log((N + 1) / (freq + 1)) + 1; // smooth IDF
+    }
+    return idf;
+}
+
+// ── TF-IDF VECTOR ──────────────────────────────────────────────
+function tfidfVector(tokens, idf) {
+    const tf = {};
+    for (const t of tokens) tf[t] = (tf[t] || 0) + 1;
+    const vec = {};
+    for (const [t, count] of Object.entries(tf)) {
+        vec[t] = (count / tokens.length) * (idf[t] || Math.log(2));
+    }
+    return vec;
+}
+
+// ── COSINE SIMILARITY ──────────────────────────────────────────
+function cosineSimilarity(vecA, vecB) {
+    let dot = 0, normA = 0, normB = 0;
+    for (const [k, v] of Object.entries(vecA)) {
+        dot   += v * (vecB[k] || 0);
+        normA += v * v;
+    }
+    for (const v of Object.values(vecB)) normB += v * v;
+    if (normA === 0 || normB === 0) return 0;
+    return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+}
+
+// ── LEVENSHTEIN (fallback exact-match boost) ───────────────────
 function levenshtein(a, b) {
     const m = a.length, n = b.length;
     const dp = Array.from({ length: m+1 }, (_, i) =>
@@ -283,32 +327,120 @@ function levenshtein(a, b) {
     return dp[m][n];
 }
 
-function similarityScore(input, target) {
-    if (!target || !input) return 0;
-    if (input === target) return 1.00;
-    if (input.includes(target) || target.includes(input)) return 0.92;
-    const ti = input.split(/\s+/), tt = target.split(/\s+/);
-    const hits = ti.filter(w => tt.some(tw => tw.includes(w) || w.includes(tw))).length;
-    if (hits > 0) return 0.75 + (hits / ti.length) * 0.15;
-    const maxLen = Math.max(input.length, target.length);
-    return maxLen === 0 ? 1 : 1 - levenshtein(input, target) / maxLen;
+function editSimilarity(a, b) {
+    if (!a || !b) return 0;
+    if (a === b) return 1;
+    if (a.includes(b) || b.includes(a)) return 0.9;
+    const maxLen = Math.max(a.length, b.length);
+    return maxLen === 0 ? 1 : 1 - levenshtein(a, b) / maxLen;
 }
 
+// ── COMBINED SCORE: TF-IDF cosine + edit-similarity boost ──────
+function combinedScore(inputTokens, inputRaw, row, idf) {
+    const rowTokens = [...tokenize(row.namaToko), ...tokenize(row.keyword)];
+    if (rowTokens.length === 0) return 0;
+
+    const vecInput = tfidfVector(inputTokens, idf);
+    const vecRow   = tfidfVector(rowTokens, idf);
+    const cosine   = cosineSimilarity(vecInput, vecRow);
+
+    // Edit similarity sebagai booster untuk nama pendek (e.g. "kfc" vs "kfc")
+    const editA = editSimilarity(inputRaw, row.namaToko);
+    const editB = editSimilarity(inputRaw, row.keyword);
+    const editBoost = Math.max(editA, editB);
+
+    // Weighted combination: 60% TF-IDF + 40% edit distance
+    return cosine * 0.60 + editBoost * 0.40;
+}
+
+// ── LOAD DATASET ────────────────────────────────────────────────
+async function loadKnnDataset() {
+    const now = Date.now();
+    if (knnDataset.length > 0 && (now - lastKnnLoad) < KNN_CACHE_MS) return;
+
+    const { data, error } = await supabase.from('knn_dataset')
+        .select('nama_toko, keyword_utama, kategori, sub_kategori');
+    if (error) { console.error('❌ KNN load error:', error.message); return; }
+
+    knnDataset = (data || []).map(r => ({
+        namaToko: (r.nama_toko     || '').toLowerCase().trim(),
+        keyword:  (r.keyword_utama || '').toLowerCase().trim(),
+        kategori:  r.kategori      || 'Lain-lain',
+        sub:       r.sub_kategori  || 'Uncategorized',
+    }));
+
+    idfMap      = buildIDF(knnDataset);
+    lastKnnLoad = now;
+    console.log(`📚 KNN: ${knnDataset.length} entri | IDF vocab: ${Object.keys(idfMap).length} tokens`);
+}
+
+// ── FEEDBACK LEARNING: simpan koreksi user ke Supabase ─────────
+async function saveFeedback(waNumber, toko, kategori, sub) {
+    try {
+        await supabase.from('knn_dataset').insert({
+            nama_toko:     toko,
+            keyword_utama: toko.toLowerCase(),
+            kategori,
+            sub_kategori:  sub,
+            sumber:        `feedback:${waNumber}`,
+        });
+        // Invalidasi cache agar langsung dipakai
+        lastKnnLoad = 0;
+        console.log(`🧠 Feedback learned: ${toko} → ${kategori}/${sub}`);
+    } catch (e) {
+        console.warn('⚠️ Feedback save failed:', e.message);
+    }
+}
+
+// ── KNN ANALYSIS: top-K voting dengan TF-IDF ───────────────────
 async function knnAnalysis(tokoInput) {
     await loadKnnDataset();
-    const input = tokoInput.toLowerCase().trim();
-    let bestScore = 0, bestMatch = null;
-    for (const row of knnDataset) {
-        const score = Math.max(similarityScore(input, row.namaToko), similarityScore(input, row.keyword));
-        if (score > bestScore) { bestScore = score; bestMatch = row; }
+    if (knnDataset.length === 0) return null;
+
+    const input       = tokoInput.toLowerCase().trim();
+    const inputTokens = tokenize(input);
+
+    // Hitung score semua row
+    const scored = knnDataset.map(row => ({
+        row,
+        score: combinedScore(inputTokens, input, row, idfMap),
+    }));
+
+    // Ambil top-K
+    scored.sort((a, b) => b.score - a.score);
+    const topK = scored.slice(0, KNN_K).filter(s => s.score >= 0.35);
+    if (topK.length === 0) return null;
+
+    // Majority voting berbobot score
+    const votes = {};
+    for (const { row, score } of topK) {
+        const key = `${row.kategori}|||${row.sub}`;
+        votes[key] = (votes[key] || 0) + score;
     }
-    if (bestMatch && bestScore >= 0.55) {
-        const confidence = Math.min(99.9, Math.round(bestScore * 1000) / 10);
-        return { kategori: bestMatch.kategori, sub: bestMatch.sub, confidence, status: confidence >= 85 ? '✅ Valid' : '🔶 Review', matched: bestMatch.namaToko };
-    }
-    return null;
+    const bestKey   = Object.entries(votes).sort((a, b) => b[1] - a[1])[0][0];
+    const [kategori, sub] = bestKey.split('|||');
+    const bestScore = topK[0].score;
+
+    // Confidence: gabungkan score tertinggi + konsistensi voting
+    const totalVotes   = Object.values(votes).reduce((a, b) => a + b, 0);
+    const winnerVotes  = votes[bestKey];
+    const consensus    = winnerVotes / totalVotes; // 0-1: seberapa sepakat top-K
+    const rawConf      = bestScore * 0.7 + consensus * 0.3;
+    const confidence   = Math.min(99.9, Math.round(rawConf * 1000) / 10);
+
+    if (confidence < 35) return null;
+
+    return {
+        kategori,
+        sub,
+        confidence,
+        status:  confidence >= 80 ? '✅ Valid' : '🔶 Review',
+        matched: topK[0].row.namaToko,
+        method:  `KNN-${topK.length}`,
+    };
 }
 
+// ── GROQ ANALYSIS: prompt kontekstual + contoh few-shot ────────
 async function groqAnalysis(tokoInput, judul) {
     if (!GROQ_API_KEY) return null;
     try {
@@ -319,30 +451,43 @@ async function groqAnalysis(tokoInput, judul) {
                 'Authorization': `Bearer ${GROQ_API_KEY}`,
             },
             body: JSON.stringify({
-                model: 'llama3-8b-8192',
-                max_tokens: 80,
-                temperature: 0.1,
+                model:       'llama3-8b-8192',
+                max_tokens:  120,
+                temperature: 0.05,
                 messages: [
                     {
                         role: 'system',
-                        content: 'Kamu asisten kategorisasi transaksi keuangan Indonesia. Jawab HANYA dalam format JSON tanpa teks lain: {"kategori":"...","sub_kategori":"..."}. Pilih kategori dari: Makanan & Minuman, Transportasi, Kebutuhan Pokok, Kesehatan, Hiburan, Belanja Online, Fashion, Tagihan, Pendidikan, Rumah Tangga, Perjalanan, Lain-lain.',
+                        content:
+`Kamu AI kategorisasi transaksi keuangan Indonesia.
+Jawab HANYA format JSON: {"kategori":"...","sub_kategori":"...","confidence":0-100}
+Daftar kategori VALID: Makanan & Minuman, Transportasi, Kebutuhan Pokok, Kesehatan, Hiburan, Belanja Online, Fashion, Tagihan, Pendidikan, Rumah Tangga, Perjalanan, Investasi, Lain-lain.
+Sub-kategori: isi spesifik misal "Fast Food", "Kafe", "BBM", "Ojek Online", "Minimarket", "Apotek", "Streaming", dll.
+Contoh:
+- "KFC" → {"kategori":"Makanan & Minuman","sub_kategori":"Fast Food","confidence":98}
+- "Gojek perjalanan" → {"kategori":"Transportasi","sub_kategori":"Ojek Online","confidence":96}
+- "Pertamina" → {"kategori":"Transportasi","sub_kategori":"BBM","confidence":97}
+- "Transfer BCA" → {"kategori":"Tagihan","sub_kategori":"Perbankan","confidence":97}
+- "PLN token" → {"kategori":"Tagihan","sub_kategori":"Listrik","confidence":98}
+- "Shopee" → {"kategori":"Belanja Online","sub_kategori":"E-Commerce","confidence":95}`,
                     },
                     {
                         role: 'user',
-                        content: `Nama toko: "${tokoInput}", Judul: "${judul || tokoInput}". Kategori apa?`,
+                        content: `Nama toko: "${tokoInput}"${judul && judul !== tokoInput ? `, Judul: "${judul}"` : ''}`,
                     },
                 ],
             }),
         });
-        const data = await res.json();
-        const text = data.choices?.[0]?.message?.content || '{}';
+        const data   = await res.json();
+        const text   = data.choices?.[0]?.message?.content || '{}';
         const parsed = JSON.parse(text.replace(/```json|```/g, '').trim());
+        const conf   = Math.min(95, Math.max(50, parsed.confidence || 72));
         return {
-            kategori:   parsed.kategori    || 'Lain-lain',
+            kategori:   parsed.kategori     || 'Lain-lain',
             sub:        parsed.sub_kategori || 'Uncategorized',
-            confidence: 78.0,
-            status:     '🤖 Groq AI',
+            confidence: conf,
+            status:     conf >= 80 ? '🤖 AI' : '🤖 AI (Review)',
             matched:    null,
+            method:     'Groq LLM',
         };
     } catch (e) {
         console.warn('⚠️ Groq fallback error:', e.message);
@@ -350,12 +495,32 @@ async function groqAnalysis(tokoInput, judul) {
     }
 }
 
+// ── ENSEMBLE: KNN → Groq → Fallback ────────────────────────────
 async function getAIAnalysis(tokoInput, judul = '') {
     const knnResult = await knnAnalysis(tokoInput);
-    if (knnResult) return knnResult;
+
+    // Kalau KNN sangat yakin (≥80%), langsung pakai
+    if (knnResult && knnResult.confidence >= 80) return knnResult;
+
+    // KNN ragu-ragu → tanya Groq juga, ambil yang lebih yakin
     const groqResult = await groqAnalysis(tokoInput, judul);
-    if (groqResult) return groqResult;
-    return { kategori: 'Lain-lain', sub: 'Uncategorized', confidence: 40.0, status: '⚠️ Review', matched: null };
+    if (groqResult) {
+        if (!knnResult) return groqResult;
+        // Ensemble: ambil hasil dengan confidence lebih tinggi,
+        // tapi kalau keduanya sepakat kategori → boost confidence
+        if (knnResult.kategori === groqResult.kategori) {
+            return {
+                ...groqResult,
+                confidence: Math.min(99.9, (knnResult.confidence + groqResult.confidence) / 2 + 5),
+                status:     '✅ Ensemble',
+                method:     'KNN+Groq',
+            };
+        }
+        return groqResult.confidence >= knnResult.confidence ? groqResult : knnResult;
+    }
+
+    if (knnResult) return knnResult;
+    return { kategori: 'Lain-lain', sub: 'Uncategorized', confidence: 30.0, status: '⚠️ Review', matched: null, method: 'Fallback' };
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -799,7 +964,8 @@ const MSG = {
         `2️⃣ Ubah Judul\n` +
         `3️⃣ Ubah Nominal\n` +
         `4️⃣ Batal\n` +
-        `_Balas angka 1-4_`,
+        `5️⃣ Koreksi Kategori _(bantu AI belajar)_\n` +
+        `_Balas angka 1-5_`,
 
     saved: (d, alert) => {
         let msg = `✅ *Transaksi Tersimpan!*\n━━━━━━━━━━━━━━━━━\n`;
@@ -950,8 +1116,8 @@ client.on('ready', async () => {
 // MAIN MESSAGE HANDLER
 // ═══════════════════════════════════════════════════════════════
 client.on('message', async msg => {
-    const from      = msg.from;
     if (msg.isStatus) return;
+    const from      = msg.from;
     if (from.endsWith('@g.us')) return;
 
     const text  = (msg.body || '').trim();
@@ -1159,11 +1325,64 @@ client.on('message', async msg => {
             return msg.reply(`✏️ *Ubah Nominal*\n\nNominal sekarang: *Rp ${parseInt(d.nominal).toLocaleString('id-ID')}*\n\nKetik nominal baru:\n_Contoh: \`75000\`_`);
         }
 
+        // ── Koreksi Kategori (Feedback Learning) ─────────────
+        if (['5'].includes(lower)) {
+            setState(from, 'await_kategori_koreksi', d);
+            return msg.reply(
+                `🧠 *Koreksi Kategori*\n━━━━━━━━━━━━━━━━━\n` +
+                `Kategori saat ini: *${d.ai.kategori} › ${d.ai.sub}*\n\n` +
+                `Pilih kategori yang benar:\n` +
+                `1. Makanan & Minuman\n2. Transportasi\n3. Kebutuhan Pokok\n` +
+                `4. Kesehatan\n5. Hiburan\n6. Belanja Online\n7. Fashion\n` +
+                `8. Tagihan\n9. Pendidikan\n10. Rumah Tangga\n11. Perjalanan\n12. Investasi\n13. Lain-lain\n\n` +
+                `_Balas angka 1-13 atau ketik nama kategori langsung_`
+            );
+        }
+
         if (['4','batal','cancel','tidak','no'].includes(lower)) {
             resetState(from); return msg.reply(MSG.cancelled());
         }
 
-        return msg.reply(`❓ Balas angka:\n1️⃣ Simpan\n2️⃣ Ubah Judul\n3️⃣ Ubah Nominal\n4️⃣ Batal`);
+        return msg.reply(`❓ Balas angka:\n1️⃣ Simpan\n2️⃣ Ubah Judul\n3️⃣ Ubah Nominal\n4️⃣ Batal\n5️⃣ Koreksi Kategori _(bantu AI belajar)_`);
+    }
+
+    // ── AWAIT KATEGORI KOREKSI ────────────────────────────────
+    if (cur.step === 'await_kategori_koreksi') {
+        const d = cur.data;
+        const kategoriMap = {
+            '1':'Makanan & Minuman','2':'Transportasi','3':'Kebutuhan Pokok',
+            '4':'Kesehatan','5':'Hiburan','6':'Belanja Online','7':'Fashion',
+            '8':'Tagihan','9':'Pendidikan','10':'Rumah Tangga','11':'Perjalanan',
+            '12':'Investasi','13':'Lain-lain',
+        };
+        const kategori = kategoriMap[lower] || text;
+        if (!kategori || kategori.length < 3)
+            return msg.reply(`❌ Kategori tidak valid. Balas angka 1-13.\nKetik *batal* untuk kembali.`);
+
+        setState(from, 'await_sub_koreksi', { ...d, newKategori: kategori });
+        return msg.reply(
+            `✏️ *Kategori dipilih: ${kategori}*\n\n` +
+            `Sekarang ketik sub-kategori:\n` +
+            `_Contoh: Fast Food, Kafe, BBM, Ojek Online, Minimarket, Streaming, dll_\n\n` +
+            `_Atau ketik *skip* untuk biarkan otomatis_`
+        );
+    }
+
+    // ── AWAIT SUB KOREKSI ─────────────────────────────────────
+    if (cur.step === 'await_sub_koreksi') {
+        const d = cur.data;
+        const sub = lower === 'skip' ? d.newKategori : text;
+        const correctedAI = { ...d.ai, kategori: d.newKategori, sub, confidence: 99.0, status: '✅ Dikoreksi', method: 'User Feedback' };
+        const finalData   = { ...d, ai: correctedAI };
+
+        // Simpan feedback ke dataset agar AI belajar
+        saveFeedback(from, d.toko, d.newKategori, sub).catch(() => {});
+
+        setState(from, 'confirm', finalData);
+        return msg.reply(
+            `✅ *Kategori diperbarui!*\n🧠 AI akan belajar dari koreksi ini.\n\n` +
+            MSG.confirm(finalData)
+        );
     }
 
     // ── AWAIT JUDUL EDIT ─────────────────────────────────────
