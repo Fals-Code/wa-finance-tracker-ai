@@ -372,6 +372,286 @@ async function extractTextFromImage(base64Image) {
     }
 }
 
+// ═══════════════════════════════════════════════════════════════
+// PRE-DETECTION: Deteksi jenis struk sebelum masuk KNN/AI
+// Berdasarkan pola nyata struk bank & transaksi Indonesia
+// ═══════════════════════════════════════════════════════════════
+function preDetectReceiptType(rawText) {
+    if (!rawText) return null;
+    const t = rawText.toLowerCase();
+
+    // ─── 1. TRANSFER BANK (prioritas tertinggi) ───────────────────
+    // Pola BCA Mobile / myBCA
+    const isBCATransfer = (
+        (t.includes('biz id') || t.includes('bizid')) ||
+        (t.includes('bi-fast') || t.includes('bifast')) ||
+        (t.includes('m-transfer') && t.includes('berhasil')) ||
+        (t.includes('transfer berhasil') && (t.includes('bca') || t.includes('rekening tujuan'))) ||
+        (t.includes('sumber dana') && t.includes('penerima')) ||
+        (t.includes('klikbca') && t.includes('transfer')) ||
+        (t.includes('detail transfer') && t.includes('nominal')) ||
+        (t.includes('metode transfer') && (t.includes('bi-fast') || t.includes('rtgs') || t.includes('online')))
+    );
+
+    // Pola BRI Mobile / BRImo
+    const isBRITransfer = (
+        (t.includes('brimo') && t.includes('transfer')) ||
+        (t.includes('bri') && t.includes('transfer berhasil')) ||
+        (t.includes('no. referensi') && t.includes('bri')) ||
+        (t.includes('rekening tujuan') && t.includes('bri'))
+    );
+
+    // Pola Mandiri / Livin
+    const isMandiriTransfer = (
+        (t.includes('livin') && t.includes('transfer')) ||
+        (t.includes('mandiri') && t.includes('transfer berhasil')) ||
+        (t.includes('mandiri') && t.includes('rekening tujuan')) ||
+        (t.includes('no. transaksi') && t.includes('mandiri'))
+    );
+
+    // Pola BNI Mobile
+    const isBNITransfer = (
+        (t.includes('bni') && t.includes('transfer berhasil')) ||
+        (t.includes('bni-') && /bni-\d+/.test(t)) ||
+        (t.includes('bni') && t.includes('rekening tujuan'))
+    );
+
+    // Pola BSI / Bank Syariah
+    const isBSITransfer = (
+        (t.includes('bsi') && t.includes('transfer')) ||
+        (t.includes('bank syariah') && t.includes('transfer'))
+    );
+
+    // Pola umum transfer bank (semua bank)
+    const isGenericTransfer = (
+        (t.includes('transfer berhasil') || t.includes('pengiriman berhasil')) ||
+        (t.includes('rekening tujuan') && (t.includes('nominal') || t.includes('jumlah'))) ||
+        (t.includes('penerima') && t.includes('sumber dana')) ||
+        (t.includes('no. rekening') && t.includes('transfer')) ||
+        (t.includes('tujuan transaksi') && t.includes('nominal')) ||
+        (t.includes('biaya transaksi') && t.includes('nominal') && t.includes('penerima'))
+    );
+
+    if (isBCATransfer || isBRITransfer || isMandiriTransfer || isBNITransfer || isBSITransfer || isGenericTransfer) {
+        // Coba deteksi bank pengirim
+        let bankName = 'Bank';
+        if (t.includes('bca')) bankName = 'BCA';
+        else if (t.includes('bri') || t.includes('brimo')) bankName = 'BRI';
+        else if (t.includes('mandiri') || t.includes('livin')) bankName = 'Mandiri';
+        else if (t.includes('bni')) bankName = 'BNI';
+        else if (t.includes('bsi') || t.includes('bank syariah')) bankName = 'BSI';
+        else if (t.includes('cimb') || t.includes('ocbc')) bankName = 'CIMB';
+        else if (t.includes('danamon')) bankName = 'Danamon';
+        else if (t.includes('permata')) bankName = 'Permata';
+        else if (t.includes('btn')) bankName = 'BTN';
+        else if (t.includes('jago')) bankName = 'Bank Jago';
+        else if (t.includes('neo')) bankName = 'Bank Neo';
+        else if (t.includes('seabank')) bankName = 'SeaBank';
+
+        // Coba deteksi nama penerima
+        let penerima = '';
+        const penerimaMatch = rawText.match(/penerima[^\n:]*[:]\s*([A-Z][A-Z\s]{2,30})/i);
+        if (penerimaMatch) penerima = ` ke ${penerimaMatch[1].trim()}`;
+
+        return {
+            toko: `Transfer ${bankName}${penerima}`,
+            kategori: 'Tagihan',
+            sub: 'Perbankan',
+            confidence: 97.0,
+            status: '✅ Valid',
+            isPreDetected: true,
+        };
+    }
+
+    // ─── 2. TOP UP / ISI SALDO E-WALLET ───────────────────────────
+    const isTopUp = (
+        (t.includes('top up') || t.includes('topup') || t.includes('isi saldo') || t.includes('tambah saldo')) &&
+        (t.includes('ovo') || t.includes('gopay') || t.includes('dana') || t.includes('shopeepay') ||
+         t.includes('linkaja') || t.includes('flazz') || t.includes('tapcash') || t.includes('e-money'))
+    );
+    if (isTopUp) {
+        let wallet = 'E-Wallet';
+        if (t.includes('ovo')) wallet = 'OVO';
+        else if (t.includes('gopay')) wallet = 'GoPay';
+        else if (t.includes('dana')) wallet = 'DANA';
+        else if (t.includes('shopeepay')) wallet = 'ShopeePay';
+        else if (t.includes('linkaja')) wallet = 'LinkAja';
+        else if (t.includes('flazz')) wallet = 'Flazz BCA';
+        else if (t.includes('tapcash')) wallet = 'TapCash BNI';
+        return { toko: `Top Up ${wallet}`, kategori: 'Tagihan', sub: 'Dompet Digital', confidence: 95.0, status: '✅ Valid', isPreDetected: true };
+    }
+
+    // ─── 3. BAYAR TAGIHAN / VIRTUAL ACCOUNT ───────────────────────
+    const isBillPayment = (
+        (t.includes('virtual account') || t.includes('va ')) &&
+        (t.includes('berhasil') || t.includes('sukses') || t.includes('pembayaran'))
+    );
+    const isPLN = t.includes('pln') && (t.includes('token') || t.includes('listrik') || t.includes('kwh'));
+    const isPDAM = t.includes('pdam') && (t.includes('air') || t.includes('tagihan'));
+    const isBPJS = (t.includes('bpjs') && (t.includes('kesehatan') || t.includes('ketenagakerjaan')));
+    const isTelkom = (t.includes('indihome') || t.includes('telkom')) && t.includes('tagihan');
+
+    if (isPLN) return { toko: 'PLN Token Listrik', kategori: 'Tagihan', sub: 'Listrik', confidence: 97.0, status: '✅ Valid', isPreDetected: true };
+    if (isPDAM) return { toko: 'PDAM Air', kategori: 'Tagihan', sub: 'Air', confidence: 97.0, status: '✅ Valid', isPreDetected: true };
+    if (isBPJS) {
+        const sub = t.includes('ketenagakerjaan') ? 'Asuransi' : 'Asuransi';
+        return { toko: 'BPJS', kategori: 'Tagihan', sub, confidence: 97.0, status: '✅ Valid', isPreDetected: true };
+    }
+    if (isTelkom) return { toko: 'Indihome / Telkom', kategori: 'Tagihan', sub: 'Internet', confidence: 95.0, status: '✅ Valid', isPreDetected: true };
+    if (isBillPayment) return { toko: 'Bayar Tagihan Virtual Account', kategori: 'Tagihan', sub: 'Perbankan', confidence: 90.0, status: '✅ Valid', isPreDetected: true };
+
+    // ─── 4. STRUK BELANJA MINIMARKET / SUPERMARKET ────────────────
+    const isMinimarket = (
+        t.includes('indomaret') || t.includes('alfamart') || t.includes('alfamidi') ||
+        t.includes('circle k') || t.includes('lawson') || t.includes('familymart') ||
+        t.includes('superindo') || t.includes('hypermart') || t.includes('lottemart') ||
+        t.includes('carrefour') || t.includes('transmart') || t.includes('giant')
+    );
+    if (isMinimarket) {
+        let nama = 'Minimarket';
+        if (t.includes('indomaret')) nama = 'Indomaret';
+        else if (t.includes('alfamart')) nama = 'Alfamart';
+        else if (t.includes('alfamidi')) nama = 'Alfamidi';
+        else if (t.includes('circle k')) nama = 'Circle K';
+        else if (t.includes('superindo')) nama = 'Superindo';
+        else if (t.includes('hypermart')) nama = 'Hypermart';
+        else if (t.includes('transmart')) nama = 'Transmart';
+        return { toko: nama, kategori: 'Kebutuhan Pokok', sub: 'Minimarket', confidence: 96.0, status: '✅ Valid', isPreDetected: true };
+    }
+
+    // ─── 5. STRUK RESTORAN FAST FOOD ──────────────────────────────
+    const isFastFood = (
+        t.includes('mcdonald') || t.includes('kfc') || t.includes('burger king') ||
+        t.includes('pizza hut') || t.includes("domino's") || t.includes('subway') ||
+        t.includes('a&w') || t.includes('texas chicken') || t.includes('popeyes') ||
+        t.includes('wingstop') || t.includes('hokben') || t.includes('hoka hoka') ||
+        t.includes('yoshinoya') || t.includes('richeese') || t.includes('jollibee') ||
+        t.includes('carl\'s jr') || t.includes('five guys') || t.includes('shake shack')
+    );
+    if (isFastFood) return { toko: null, kategori: 'Makanan & Minuman', sub: 'Fast Food', confidence: 95.0, status: '✅ Valid', isPreDetected: true };
+
+    // ─── 6. STRUK KAFE ────────────────────────────────────────────
+    const isKafe = (
+        t.includes('starbucks') || t.includes('kopi kenangan') || t.includes('janji jiwa') ||
+        t.includes('fore coffee') || t.includes('j.co') || t.includes('excelso') ||
+        t.includes('anomali') || t.includes('tomoro') || t.includes('djournal') ||
+        t.includes('chatime') || t.includes('gong cha') || t.includes('mixue') ||
+        t.includes('xing fu tang') || t.includes('the alley') || t.includes('tealive') ||
+        t.includes('sharetea') || t.includes('es teh indonesia') ||
+        (t.includes('kopi') && (t.includes('receipt') || t.includes('total') || t.includes('kasir')))
+    );
+    if (isKafe) return { toko: null, kategori: 'Makanan & Minuman', sub: 'Kafe', confidence: 93.0, status: '✅ Valid', isPreDetected: true };
+
+    // ─── 7. STRUK BBM / SPBU ──────────────────────────────────────
+    const isBBM = (
+        (t.includes('pertamina') || t.includes('spbu') || t.includes('shell') || t.includes('vivo energy') || t.includes('bp')) &&
+        (t.includes('liter') || t.includes('bbm') || t.includes('bensin') || t.includes('pertamax') || t.includes('pertalite') || t.includes('solar') || t.includes('dexlite'))
+    );
+    if (isBBM) {
+        let nama = 'SPBU';
+        if (t.includes('pertamina')) nama = 'Pertamina';
+        else if (t.includes('shell')) nama = 'Shell';
+        else if (t.includes('vivo')) nama = 'Vivo';
+        return { toko: nama, kategori: 'Transportasi', sub: 'BBM', confidence: 97.0, status: '✅ Valid', isPreDetected: true };
+    }
+
+    // ─── 8. STRUK PARKIR / TOL ────────────────────────────────────
+    const isTol = (t.includes('jasa marga') || t.includes('tol ') || (t.includes('e-toll') || t.includes('etoll')));
+    const isParkir = (t.includes('parkir') && (t.includes('masuk') || t.includes('keluar') || t.includes('tiket') || t.includes('tarif')));
+    if (isTol) return { toko: 'Jalan Tol', kategori: 'Transportasi', sub: 'Tol', confidence: 96.0, status: '✅ Valid', isPreDetected: true };
+    if (isParkir) return { toko: 'Parkir', kategori: 'Transportasi', sub: 'Parkir', confidence: 95.0, status: '✅ Valid', isPreDetected: true };
+
+    // ─── 9. STRUK OJEK ONLINE / RIDE ──────────────────────────────
+    const isOjol = (
+        (t.includes('gojek') || t.includes('grab') || t.includes('maxim') || t.includes('indrive')) &&
+        (t.includes('goride') || t.includes('gocar') || t.includes('grabcar') || t.includes('grabike') ||
+         t.includes('perjalanan') || t.includes('fare') || t.includes('biaya perjalanan'))
+    );
+    if (isOjol) {
+        let nama = 'Ojek Online';
+        if (t.includes('gojek')) nama = 'Gojek';
+        else if (t.includes('grab')) nama = 'Grab';
+        else if (t.includes('maxim')) nama = 'Maxim';
+        return { toko: nama, kategori: 'Transportasi', sub: 'Ojek Online', confidence: 95.0, status: '✅ Valid', isPreDetected: true };
+    }
+
+    // ─── 10. STRUK APOTEK / OBAT ──────────────────────────────────
+    const isApotek = (
+        t.includes('apotek') || t.includes('kimia farma') || t.includes('k-24') ||
+        t.includes('guardian') || t.includes('century') || t.includes('watsons') ||
+        (t.includes('obat') && (t.includes('resep') || t.includes('apoteker')))
+    );
+    if (isApotek) return { toko: null, kategori: 'Kesehatan', sub: 'Apotek', confidence: 95.0, status: '✅ Valid', isPreDetected: true };
+
+    // ─── 11. STRUK RUMAH SAKIT / KLINIK ───────────────────────────
+    const isRS = (
+        t.includes('rumah sakit') || t.includes(' rs ') || t.includes('rsia') ||
+        t.includes('klinik') || t.includes('puskesmas') ||
+        (t.includes('dokter') && (t.includes('konsultasi') || t.includes('biaya periksa')))
+    );
+    if (isRS) return { toko: null, kategori: 'Kesehatan', sub: 'Rumah Sakit', confidence: 93.0, status: '✅ Valid', isPreDetected: true };
+
+    // ─── 12. STRUK E-COMMERCE / BELANJA ONLINE ────────────────────
+    const isEcommerce = (
+        (t.includes('tokopedia') || t.includes('shopee') || t.includes('lazada') ||
+         t.includes('bukalapak') || t.includes('blibli') || t.includes('tiktok shop')) &&
+        (t.includes('pesanan') || t.includes('order') || t.includes('invoice') || t.includes('pembayaran'))
+    );
+    if (isEcommerce) return { toko: null, kategori: 'Belanja Online', sub: 'E-Commerce', confidence: 94.0, status: '✅ Valid', isPreDetected: true };
+
+    // ─── 13. STRUK PULSA / PAKET DATA ─────────────────────────────
+    const isPulsa = (
+        (t.includes('telkomsel') || t.includes('xl axiata') || t.includes('indosat') ||
+         t.includes('tri') || t.includes('smartfren') || t.includes('by.u') || t.includes('axis')) &&
+        (t.includes('pulsa') || t.includes('paket data') || t.includes('mb') || t.includes('gb') ||
+         t.includes('masa aktif') || t.includes('kuota'))
+    );
+    if (isPulsa) return { toko: null, kategori: 'Tagihan', sub: 'Pulsa & Data', confidence: 95.0, status: '✅ Valid', isPreDetected: true };
+
+    // ─── 14. STRUK LAUNDRY ────────────────────────────────────────
+    const isLaundry = (
+        t.includes('laundry') || t.includes('cuci') &&
+        (t.includes('kg') || t.includes('kilogram') || t.includes('kilo'))
+    );
+    if (isLaundry) return { toko: 'Laundry', kategori: 'Rumah Tangga', sub: 'Jasa Rumah', confidence: 93.0, status: '✅ Valid', isPreDetected: true };
+
+    // ─── 15. STRUK BIOSKOP / TIKET HIBURAN ───────────────────────
+    const isBioskop = (
+        t.includes('cgv') || t.includes('cinema xxi') || t.includes('cinepolis') ||
+        (t.includes('tiket') && (t.includes('studio') || t.includes('kursi') || t.includes('seat') || t.includes('film')))
+    );
+    if (isBioskop) return { toko: null, kategori: 'Hiburan', sub: 'Bioskop', confidence: 95.0, status: '✅ Valid', isPreDetected: true };
+
+    // ─── 16. STRUK HOTEL / PENGINAPAN ─────────────────────────────
+    const isHotel = (
+        (t.includes('hotel') || t.includes('inn') || t.includes('resort') || t.includes('villa')) &&
+        (t.includes('check in') || t.includes('check out') || t.includes('kamar') ||
+         t.includes('room') || t.includes('menginap') || t.includes('nights'))
+    );
+    if (isHotel) return { toko: null, kategori: 'Perjalanan', sub: 'Akomodasi', confidence: 93.0, status: '✅ Valid', isPreDetected: true };
+
+    // ─── 17. STRUK TIKET PESAWAT / KAI ───────────────────────────
+    const isTiket = (
+        (t.includes('garuda') || t.includes('lion air') || t.includes('citilink') ||
+         t.includes('airasia') || t.includes('batik air') || t.includes('sriwijaya')) ||
+        (t.includes('kai') || t.includes('kereta api')) &&
+        (t.includes('pnr') || t.includes('tiket') || t.includes('penumpang') || t.includes('boarding'))
+    );
+    if (isTiket) return { toko: null, kategori: 'Perjalanan', sub: 'Pesawat', confidence: 94.0, status: '✅ Valid', isPreDetected: true };
+
+    // ─── 18. STRUK BENGKEL / SERVIS KENDARAAN ─────────────────────
+    const isBengkel = (
+        t.includes('bengkel') ||
+        (t.includes('servis') || t.includes('service')) &&
+        (t.includes('motor') || t.includes('mobil') || t.includes('kendaraan') ||
+         t.includes('oli') || t.includes('sparepart') || t.includes('ban'))
+    );
+    if (isBengkel) return { toko: null, kategori: 'Transportasi', sub: 'Perawatan Kendaraan', confidence: 92.0, status: '✅ Valid', isPreDetected: true };
+
+    // Tidak terdeteksi → lanjut ke KNN / AI
+    return null;
+}
+
 function parseReceiptText(rawText) {
     const lines = rawText.split('\n').map(l => l.trim()).filter(Boolean);
     let nominal = 0;
@@ -611,22 +891,27 @@ async function handlePhoto(msg, from, namaUser) {
             return true;
         }
 
-        const { toko, nominal, tanggal } = parseReceiptText(ocrText);
+        const { toko: tokoRaw, nominal, tanggal } = parseReceiptText(ocrText);
 
         if (nominal === 0) {
             resetState(from);
             await msg.reply(
                 `⚠️ *Nominal tidak terdeteksi.*\n` +
-                `🏪 Toko terdeteksi: _${toko}_\n\n` +
+                `🏪 Toko terdeteksi: _${tokoRaw}_\n\n` +
                 `📋 *Coba:*\n` +
                 `• Pastikan area *TOTAL* terlihat jelas & tidak terpotong\n` +
                 `• Foto lebih dekat ke bagian bawah struk\n\n` +
-                `💡 Atau ketik manual: \`${toko} [nominal]\``
+                `💡 Atau ketik manual: \`${tokoRaw} [nominal]\``
             );
             return true;
         }
 
-        const ai = await getAIAnalysis(toko, toko);
+        // Pre-detect jenis struk (transfer, tagihan, BBM, dll) SEBELUM KNN/AI
+        const preDetected = preDetectReceiptType(ocrText);
+        const toko = (preDetected?.toko) || tokoRaw;
+        const ai = preDetected
+            ? { kategori: preDetected.kategori, sub: preDetected.sub, confidence: preDetected.confidence, status: preDetected.status, matched: toko }
+            : await getAIAnalysis(tokoRaw, tokoRaw);
         setState(from, 'await_judul', {
             toko, nominal, ai,
             sumber: 'Foto Struk',
@@ -666,6 +951,7 @@ client.on('ready', async () => {
 // ═══════════════════════════════════════════════════════════════
 client.on('message', async msg => {
     const from      = msg.from;
+    if (msg.isStatus) return;
     if (from.endsWith('@g.us')) return;
 
     const text  = (msg.body || '').trim();
