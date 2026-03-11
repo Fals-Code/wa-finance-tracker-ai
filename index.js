@@ -1805,6 +1805,7 @@ const MSG = {
         msg += `🕐 *Dicatat   :* ${createdAt}\n`;
         msg += `🔑 *ID        :* \`${r.id}\`\n`;
         msg += `━━━━━━━━━━━━━━━━━\n`;
+        msg += `💡 Ketik *hapus* atau *edit* untuk mengelola transaksi ini.\n`;
         msg += `Ketik *menu* untuk kembali`;
         return msg;
     },
@@ -2240,15 +2241,32 @@ client.on('message', async msg => {
             );
         }
 
-        const chosen = rows[idx];
-        const detail = await getTransactionDetail(from, chosen.id);
-        resetState(from);
+        const choosing = rows[idx];
+        const detail = await getTransactionDetail(from, choosing.id);
 
         if (!detail) {
+            resetState(from);
             return msg.reply(`❌ Transaksi tidak ditemukan atau sudah dihapus.\n\nKetik *menu* untuk kembali.`);
         }
 
+        // Simpan context transaksi agar bisa langsung di-hapus/edit setelah ini
+        setState(from, 'await_detail_view', { trx: detail });
+
         return msg.reply(MSG.detailTrx(detail));
+    }
+
+    // ── AWAIT DETAIL VIEW (Catch hapus/edit) ──────────────────
+    if (cur.step === 'await_detail_view') {
+        const { trx } = cur.data;
+        if (lower.includes('hapus')) {
+            setState(from, 'await_delete_confirm', { trx });
+            return msg.reply(MSG.deleteConfirm(trx));
+        }
+        if (lower.includes('edit') || lower.includes('ubah')) {
+            setState(from, 'await_edit_action', { trx });
+            return msg.reply(MSG.editMenu(trx));
+        }
+        resetState(from); // Jika ketik apapun selain hapus/edit, anggap selesai
     }
 
     // ── AWAIT EDIT SELECT ────────────────────────────────────
