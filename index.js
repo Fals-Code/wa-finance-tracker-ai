@@ -28,26 +28,34 @@ async function getOrCreateProfile(waNumber, nama) {
 async function migrateUser(oldId, newId) {
     if (oldId === newId) return;
     
-    console.log(`🔄 Migrasi data: ${oldId} -> ${newId}`);
+    // Cek apakah benar-benar ada data di ID lama
+    const { count } = await supabase.from('transaksi').select('id', { count: 'exact', head: true }).eq('wa_number', oldId);
+    const { data: oldProfile } = await supabase.from('user_profiles').select('wa_number').eq('wa_number', oldId).maybeSingle();
+    
+    if (count === 0 && !oldProfile) return; // Tidak ada data, tidak perlu migrasi
+    
+    console.log(`🔄 Migrasi data terdeteksi: ${oldId} -> ${newId}`);
     
     // 1. Pindahkan Transaksi
-    await supabase.from('transaksi').update({ wa_number: newId }).eq('wa_number', oldId);
+    if (count > 0) {
+        await supabase.from('transaksi').update({ wa_number: newId }).eq('wa_number', oldId);
+    }
     
-    // 2. Pindahkan Budgets
+    // 2. Pindahkan Budgets & Categories
     await supabase.from('user_budgets').update({ wa_number: newId }).eq('wa_number', oldId);
-    
-    // 3. Pindahkan Categories
     await supabase.from('user_categories').update({ wa_number: newId }).eq('wa_number', oldId);
     
-    // 4. Update Profile (atau pindahkan data profil jika perlu)
-    const { data: oldProfile } = await supabase.from('user_profiles').select('*').eq('wa_number', oldId).maybeSingle();
+    // 3. Update Profile
     if (oldProfile) {
-        await supabase.from('user_profiles').update({ 
-            authcode: oldProfile.authcode,
-            last_active: oldProfile.last_active 
-        }).eq('wa_number', newId);
+        const { data: fullOldProfile } = await supabase.from('user_profiles').select('*').eq('wa_number', oldId).single();
+        await supabase.from('user_profiles').upsert({ 
+            wa_number: newId,
+            nama: fullOldProfile.nama,
+            authcode: fullOldProfile.authcode,
+            last_active: fullOldProfile.last_active 
+        });
         
-        // Hapus profil lama agar tidak dobel
+        // Hapus profil lama
         await supabase.from('user_profiles').delete().eq('wa_number', oldId);
     }
     
@@ -1649,7 +1657,7 @@ const MSG = {
 
     chooseTipe: () =>
         `💳 *Catat Transaksi*\n━━━━━━━━━━━━━━━━━\n` +
-        `Jenis transaksi:\n\n` +
+        `Jenis transaksi:\n\n` + 
         `💸 *1. Pengeluaran* (bayar/beli)\n` +
         `💰 *2. Pemasukan* (gaji/transfer masuk)\n\n` +
         `_Balas 1 atau 2 | ketik *batal* untuk kembali_`,
@@ -2045,62 +2053,70 @@ client.on('message', async msg => {
         return;
     }
 
-    // ── PERINTAH GLOBAL ──────────────────────────────────────
+    // ── PERINTAH GLOBAL (Priority 1: Batal & Menu) ───────────
     if (['batal','cancel'].includes(lower))     { resetState(from); return msg.reply(MSG.cancelled()); }
     if (['menu','mulai','start'].includes(lower)) { setState(from,'menu',{}); return msg.reply(MSG.menu(from)); }
-    if (['laporan','report'].includes(lower))    return msg.reply(await getLaporan(from).catch(e=>'❌ '+e.message));
-    if (['saldo','balance'].includes(lower))     return msg.reply(await getSaldo(from).catch(e=>'❌ '+e.message));
-    if (['riwayat','history'].includes(lower))   return msg.reply(await getRiwayat(from).catch(e=>'❌ '+e.message));
-    if (['help','bantuan'].includes(lower))      return msg.reply(MSG.help());
-    if (['budget','anggaran'].includes(lower)) {
-        const b = await getBudget(from);
-        setState(from, 'await_budget', {});
-        return msg.reply(MSG.budgetMenu(b));
-    }
-    if (['export','unduh','download'].includes(lower)) {
-        await msg.reply('⏳ Menyiapkan file Excel...');
-        try {
-            const tmpPath = path.join(os.tmpdir(), `transaksi_${Date.now()}.xlsx`);
-            const ok = await generateExportXLSX(from, tmpPath);
-            if (!ok) return msg.reply('📭 Belum ada data transaksi untuk di-export.');
 
-            const { MessageMedia } = require('whatsapp-web.js');
-            const media = MessageMedia.fromFilePath(tmpPath);
-            media.filename = `transaksi_${getBulanKey()}.xlsx`;
-            media.mimetype = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-
-            await msg.reply(media, undefined, {
-                caption: `📊 *Export Data Transaksi*\n━━━━━━━━━━━━━━━━━\n✅ File Excel siap dibuka!\n\n• Baris kuning = pengeluaran\n• Baris hijau = pemasukan\n• Kolom nominal sudah terformat Rp\n• Ada filter & freeze header otomatis`
-            });
-            fs.unlinkSync(tmpPath);
-        } catch (e) {
-            console.error('Export error:', e.message);
-            await msg.reply('❌ Gagal export. Coba lagi nanti.');
+    // ── STATE HANDLERS (Priority 2) ──────────────────────────
+    // Jika user sedang di tengah proses tertentu, dahulukan logic state-nya
+    if (cur.step !== 'idle' && cur.step !== 'menu') {
+        // (Semua logic state lainnya akan diproses di bawah)
+    } else {
+        // ── PERINTAH GLOBAL (Priority 3: Hanya jalan di idle/menu)
+        if (['laporan','report'].includes(lower))    return msg.reply(await getLaporan(from).catch(e=>'❌ '+e.message));
+        if (['saldo','balance'].includes(lower))     return msg.reply(await getSaldo(from).catch(e=>'❌ '+e.message));
+        if (['riwayat','history'].includes(lower))   return msg.reply(await getRiwayat(from).catch(e=>'❌ '+e.message));
+        if (['help','bantuan'].includes(lower))      return msg.reply(MSG.help());
+        if (['budget','anggaran'].includes(lower)) {
+            const b = await getBudget(from);
+            setState(from, 'await_budget', {});
+            return msg.reply(MSG.budgetMenu(b));
         }
-        return;
-    }
-    if (['kategori','category'].includes(lower)) {
-        const cats = await getUserCategories(from);
-        setState(from, 'await_category', {});
-        return msg.reply(MSG.categoryMenu(cats));
-    }
-    if (['detail','lihat'].includes(lower)) {
-        const rows = await getRecentWithId(from);
-        setState(from, 'await_detail_pick', { rows });
-        return msg.reply(MSG.detailList(rows));
-    }
-    if (['edit','hapus','ubah'].includes(lower)) {
-        const rows = await getRecentWithId(from);
-        setState(from, 'await_edit_select', { rows });
-        return msg.reply(MSG.editList(rows));
-    }
-    if (lower === 'notif on' || lower === 'notif off') {
-        const isEnable = lower === 'notif on';
-        scheduler.toggleNotif(from, isEnable);
-        if (isEnable) {
-            return msg.reply(`🔔 *Notifikasi Otomatis DIAKTIFKAN*\n━━━━━━━━━━━━━━━━━\nKamu akan menerima:\n• Ringkasan Harian (Pukul 21:00)\n• Ringkasan Mingguan (Tiap Senin Pukul 07:00)\n• Laporan Bulanan (Tiap Tanggal 1 Pukul 08:00)`);
-        } else {
-            return msg.reply(`🔕 *Notifikasi Otomatis DIMATIKAN*`);
+        if (['export','unduh','download'].includes(lower)) {
+            await msg.reply('⏳ Menyiapkan file Excel...');
+            try {
+                const tmpPath = path.join(os.tmpdir(), `transaksi_${Date.now()}.xlsx`);
+                const ok = await generateExportXLSX(from, tmpPath);
+                if (!ok) return msg.reply('📭 Belum ada data transaksi untuk di-export.');
+
+                const { MessageMedia } = require('whatsapp-web.js');
+                const media = MessageMedia.fromFilePath(tmpPath);
+                media.filename = `transaksi_${getBulanKey()}.xlsx`;
+                media.mimetype = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+                await msg.reply(media, undefined, {
+                    caption: `📊 *Export Data Transaksi*\n━━━━━━━━━━━━━━━━━\n✅ File Excel siap dibuka!\n\n• Baris kuning = pengeluaran\n• Baris hijau = pemasukan\n• Kolom nominal sudah terformat Rp\n• Ada filter & freeze header otomatis`
+                });
+                fs.unlinkSync(tmpPath);
+            } catch (e) {
+                console.error('Export error:', e.message);
+                await msg.reply('❌ Gagal export. Coba lagi nanti.');
+            }
+            return;
+        }
+        if (['kategori','category'].includes(lower)) {
+            const cats = await getUserCategories(from);
+            setState(from, 'await_category', {});
+            return msg.reply(MSG.categoryMenu(cats));
+        }
+        if (['detail','lihat'].includes(lower)) {
+            const rows = await getRecentWithId(from);
+            setState(from, 'await_detail_pick', { rows });
+            return msg.reply(MSG.detailList(rows));
+        }
+        if (['edit','hapus','ubah'].includes(lower)) {
+            const rows = await getRecentWithId(from);
+            setState(from, 'await_edit_select', { rows });
+            return msg.reply(MSG.editList(rows));
+        }
+        if (lower === 'notif on' || lower === 'notif off') {
+            const isEnable = lower === 'notif on';
+            scheduler.toggleNotif(from, isEnable);
+            if (isEnable) {
+                return msg.reply(`🔔 *Notifikasi Otomatis DIAKTIFKAN*\n━━━━━━━━━━━━━━━━━\nKamu akan menerima:\n• Ringkasan Harian (Pukul 21:00)\n• Ringkasan Mingguan (Tiap Senin Pukul 07:00)\n• Laporan Bulanan (Tiap Tanggal 1 Pukul 08:00)`);
+            } else {
+                return msg.reply(`🔕 *Notifikasi Otomatis DIMATIKAN*`);
+            }
         }
     }
 
