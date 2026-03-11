@@ -207,10 +207,32 @@ async function getRiwayat(waNumber, limit = 10) {
     return msg;
 }
 
-// Export via link (Supabase public URL)
-function getExportLink(waNumber) {
-    const encoded = encodeURIComponent(waNumber);
-    return `${SUPABASE_URL}/rest/v1/transaksi?wa_number=eq.${encoded}&select=tanggal,judul,nama_toko,nominal,tipe,kategori,sub_kategori,catatan&apikey=${SUPABASE_KEY}`;
+// ═══════════════════════════════════════════════════════════════
+// EXPORT DATA — format XLSX rapi siap buka di Excel/Sheets
+// ═══════════════════════════════════════════════════════════════
+const { execFile } = require('child_process');
+
+async function generateExportXLSX(waNumber, outPath) {
+    const { data, error } = await supabase
+        .from('transaksi')
+        .select('tanggal,judul,nama_toko,nominal,tipe,kategori,sub_kategori,catatan')
+        .eq('wa_number', waNumber)
+        .order('tanggal', { ascending: false });
+
+    if (error || !data || data.length === 0) return false;
+
+    const payload = JSON.stringify({ rows: data, outpath: outPath });
+
+    return new Promise((resolve, reject) => {
+        // Panggil script Python untuk generate XLSX
+        const scriptPath = path.join(__dirname, 'gen_xlsx.py');
+        const proc = execFile('python3', [scriptPath], (err, stdout, stderr) => {
+            if (err) { console.error('xlsx gen error:', stderr); return reject(err); }
+            resolve(true);
+        });
+        proc.stdin.write(payload);
+        proc.stdin.end();
+    });
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -329,15 +351,10 @@ async function groqAnalysis(tokoInput, judul) {
 }
 
 async function getAIAnalysis(tokoInput, judul = '') {
-    // Coba KNN dulu
     const knnResult = await knnAnalysis(tokoInput);
     if (knnResult) return knnResult;
-
-    // Fallback ke Groq AI kalau KNN tidak match
     const groqResult = await groqAnalysis(tokoInput, judul);
     if (groqResult) return groqResult;
-
-    // Default
     return { kategori: 'Lain-lain', sub: 'Uncategorized', confidence: 40.0, status: '⚠️ Review', matched: null };
 }
 
@@ -359,7 +376,6 @@ function parseReceiptText(rawText) {
     const lines = rawText.split('\n').map(l => l.trim()).filter(Boolean);
     let nominal = 0;
 
-    // Pola total dari struk
     const totalPatterns = [
         /(?:grand\s*total|total\s*bayar|total\s*tagihan|total\s*pembayaran)[^\d]*([\d.,]+)/i,
         /(?:jumlah\s*bayar|tunai|cash\s*payment|bayar)[^\d]*([\d.,]+)/i,
@@ -377,14 +393,12 @@ function parseReceiptText(rawText) {
         }
     }
 
-    // Fallback: angka terbesar yang masuk akal
     if (nominal === 0) {
         const nums = [...rawText.matchAll(/\b(\d{4,})\b/g)]
             .map(m => parseInt(m[1])).filter(n => n >= 1000 && n <= 100_000_000);
         if (nums.length) nominal = Math.max(...nums);
     }
 
-    // Nama toko dari baris atas (skip baris yang terlalu pendek/angka/URL)
     const tokoLines = lines.slice(0, 8).filter(l =>
         l.length > 2 && l.length < 50 &&
         !/^\d+$/.test(l) &&
@@ -395,7 +409,6 @@ function parseReceiptText(rawText) {
     );
     const toko = tokoLines.slice(0, 2).join(' ').substring(0, 60).trim() || 'Unknown';
 
-    // Coba detect tanggal dari struk
     const tglMatch = rawText.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
     const tanggal = tglMatch ? tglMatch[0] : null;
 
@@ -403,10 +416,43 @@ function parseReceiptText(rawText) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// DETEKSI APAKAH FOTO ADALAH STRUK
+// ═══════════════════════════════════════════════════════════════
+function isLikelyReceipt(rawText) {
+    if (!rawText || rawText.trim().length < 20) return false;
+
+    const receiptKeywords = [
+        /total/i, /bayar/i, /tagihan/i, /rp\.?\s*[\d.,]+/i,
+        /struk/i, /nota/i, /receipt/i, /invoice/i,
+        /qty/i, /pcs/i, /item/i, /harga/i, /subtotal/i,
+        /kasir/i, /cashier/i, /terima kasih/i, /thank you/i,
+        /no\.?\s*trx/i, /no\.?\s*faktur/i, /kode/i,
+        /diskon/i, /discount/i, /ppn/i, /tax/i,
+        /[\d.,]{4,}/,  // ada angka panjang (nominal)
+    ];
+
+    const matches = receiptKeywords.filter(pat => pat.test(rawText));
+    return matches.length >= 3;
+}
+
+const MSG_BUKAN_STRUK =
+    `❌ *Foto bukan struk transaksi.*\n\n` +
+    `📋 *Tips foto struk yang baik:*\n` +
+    `• Pastikan foto adalah *struk/nota belanja*\n` +
+    `• Posisikan kamera *tepat di atas struk*, jangan miring\n` +
+    `• Pastikan area *TOTAL* terbaca jelas\n` +
+    `• Gunakan *cahaya cukup*, hindari bayangan\n` +
+    `• Jangan terlalu jauh — *penuhi frame* dengan struk\n` +
+    `• Hindari foto yang *buram atau goyang*\n\n` +
+    `💡 Atau ketik manual: \`Nama Toko Nominal\`\n` +
+    `_Contoh: Indomaret 45000_\n\n` +
+    `Ketik *menu* untuk kembali.`;
+
+// ═══════════════════════════════════════════════════════════════
 // STATE MANAGEMENT
 // ═══════════════════════════════════════════════════════════════
 const userState = new Map();
-const STATE_TIMEOUT_MS = 10 * 60 * 1000; // 10 menit
+const STATE_TIMEOUT_MS = 10 * 60 * 1000;
 
 function getState(from)                { return userState.get(from) || { step: 'idle', data: {}, lastActive: 0 }; }
 function setState(from, step, data={}) { userState.set(from, { step, data, lastActive: Date.now() }); }
@@ -431,7 +477,7 @@ const MSG = {
         `4️⃣  Riwayat Transaksi\n` +
         `5️⃣  Atur Budget\n` +
         `6️⃣  Kategori Custom\n` +
-        `7️⃣  Export Data\n` +
+        `7️⃣  Export Data (CSV)\n` +
         `8️⃣  Bantuan\n` +
         `━━━━━━━━━━━━━━━━━\n` +
         `_Balas angka 1-8_`,
@@ -510,19 +556,20 @@ const MSG = {
     },
 
     help: () =>
-        `ℹ️ *Bantuan Finance Tracker v6.0*\n━━━━━━━━━━━━━━━━━\n\n` +
+        `ℹ️ *Bantuan Finance Tracker v6.1*\n━━━━━━━━━━━━━━━━━\n\n` +
         `*📌 Perintah Cepat:*\n` +
         `• \`menu\` — Menu utama\n` +
         `• \`laporan\` — Laporan bulan ini\n` +
         `• \`saldo\` — Saldo & ringkasan\n` +
         `• \`riwayat\` — 10 transaksi terakhir\n` +
         `• \`budget\` — Atur budget bulanan\n` +
-        `• \`export\` — Link download data\n` +
+        `• \`export\` — Download data CSV\n` +
         `• \`batal\` — Batalkan proses\n\n` +
         `*📝 Input Cepat:*\n` +
         `\`Indomaret 50000\`\n\n` +
         `*📸 Scan Struk:*\n` +
-        `Kirim foto struk kapan saja\n\n` +
+        `Kirim foto struk kapan saja\n` +
+        `_Pastikan tulisan TOTAL terlihat jelas_\n\n` +
         `*💡 Tips:*\n` +
         `Set budget dulu agar dapat notif kalau hampir habis!\n\n` +
         `━━━━━━━━━━━━━━━━━\n` +
@@ -540,21 +587,46 @@ async function handlePhoto(msg, from, namaUser) {
 
     try {
         const ocrText = await extractTextFromImage(media.data);
-        if (!ocrText || ocrText.trim().length < 5) {
+
+        // Cek apakah teks cukup terdeteksi
+        if (!ocrText || ocrText.trim().length < 10) {
             resetState(from);
-            await msg.reply('❌ Teks tidak terdeteksi. Coba foto lebih jelas,\natau ketik *menu* untuk input manual.');
+            await msg.reply(
+                `❌ *Teks tidak terbaca.*\n\n` +
+                `📋 *Tips foto struk yang baik:*\n` +
+                `• Foto *lebih dekat* ke struk\n` +
+                `• Pastikan *cahaya cukup terang*\n` +
+                `• Jangan sampai *buram atau miring*\n` +
+                `• Area *TOTAL* harus terlihat jelas\n\n` +
+                `💡 Atau ketik manual: \`Nama Toko Nominal\`\n` +
+                `Ketik *menu* untuk kembali.`
+            );
+            return true;
+        }
+
+        // Cek apakah gambar kemungkinan struk
+        if (!isLikelyReceipt(ocrText)) {
+            resetState(from);
+            await msg.reply(MSG_BUKAN_STRUK);
             return true;
         }
 
         const { toko, nominal, tanggal } = parseReceiptText(ocrText);
+
         if (nominal === 0) {
             resetState(from);
-            await msg.reply(`⚠️ *Nominal tidak terdeteksi.*\nToko: _${toko}_\n\nCoba: \`${toko} [nominal]\``);
+            await msg.reply(
+                `⚠️ *Nominal tidak terdeteksi.*\n` +
+                `🏪 Toko terdeteksi: _${toko}_\n\n` +
+                `📋 *Coba:*\n` +
+                `• Pastikan area *TOTAL* terlihat jelas & tidak terpotong\n` +
+                `• Foto lebih dekat ke bagian bawah struk\n\n` +
+                `💡 Atau ketik manual: \`${toko} [nominal]\``
+            );
             return true;
         }
 
         const ai = await getAIAnalysis(toko, toko);
-        // Masuk ke flow judul
         setState(from, 'await_judul', {
             toko, nominal, ai,
             sumber: 'Foto Struk',
@@ -584,9 +656,9 @@ client.on('auth_failure', msg => console.error('❌ Auth gagal:', msg));
 client.on('disconnected', reason => console.warn('⚠️ Terputus:', reason));
 
 client.on('ready', async () => {
-    console.log('✅ Finance Tracker Bot v6.0 Online!');
+    console.log('✅ Finance Tracker Bot v6.1 Online!');
     await loadKnnDataset().catch(e => console.error('❌ KNN:', e.message));
-    if (!GROQ_API_KEY) console.warn('⚠️  GROQ_API_KEY kosong — fallback AI nonaktif. Isi di baris 25.');
+    if (!GROQ_API_KEY) console.warn('⚠️  GROQ_API_KEY kosong — fallback AI nonaktif.');
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -607,10 +679,8 @@ client.on('message', async msg => {
 
     console.log(`📩 ${namaKontak}: "${text.substring(0, 60)}"`);
 
-    // Profile
     await getOrCreateProfile(from, namaKontak).catch(() => {});
 
-    // State timeout
     const stateObj = getState(from);
     if (stateObj.step !== 'idle' && isTimedOut(stateObj)) resetState(from);
     const cur = getState(from);
@@ -637,8 +707,26 @@ client.on('message', async msg => {
         return msg.reply(MSG.budgetMenu(b));
     }
     if (['export','unduh','download'].includes(lower)) {
-        const link = getExportLink(from);
-        return msg.reply(`📤 *Export Data Transaksi*\n━━━━━━━━━━━━━━━━━\nBuka link ini di browser:\n\n${link}\n\n_Format: JSON — bisa dibuka di Excel via Data → From Web_`);
+        await msg.reply('⏳ Menyiapkan file Excel...');
+        try {
+            const tmpPath = path.join(os.tmpdir(), `transaksi_${Date.now()}.xlsx`);
+            const ok = await generateExportXLSX(from, tmpPath);
+            if (!ok) return msg.reply('📭 Belum ada data transaksi untuk di-export.');
+
+            const { MessageMedia } = require('whatsapp-web.js');
+            const media = MessageMedia.fromFilePath(tmpPath);
+            media.filename = `transaksi_${getBulanKey()}.xlsx`;
+            media.mimetype = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+            await msg.reply(media, undefined, {
+                caption: `📊 *Export Data Transaksi*\n━━━━━━━━━━━━━━━━━\n✅ File Excel siap dibuka!\n\n• Baris kuning = pengeluaran\n• Baris hijau = pemasukan\n• Kolom nominal sudah terformat Rp\n• Ada filter & freeze header otomatis`
+            });
+            fs.unlinkSync(tmpPath);
+        } catch (e) {
+            console.error('Export error:', e.message);
+            await msg.reply('❌ Gagal export. Coba lagi nanti.');
+        }
+        return;
     }
     if (['kategori','category'].includes(lower)) {
         const cats = await getUserCategories(from);
@@ -648,7 +736,6 @@ client.on('message', async msg => {
 
     // ── IDLE ─────────────────────────────────────────────────
     if (cur.step === 'idle') {
-        // Quick input: "Indomaret 50000"
         const q = text.match(/^(.+?)\s+([\d.,]+)\s*$/);
         if (q) {
             const toko    = q[1].trim();
@@ -683,8 +770,26 @@ client.on('message', async msg => {
             return msg.reply(MSG.categoryMenu(cats));
         }
         if (['7','export','unduh'].includes(lower)) {
-            const link = getExportLink(from);
-            return msg.reply(`📤 *Export Data*\n\n${link}\n\n_Buka di browser → save as JSON_`);
+            await msg.reply('⏳ Menyiapkan file Excel...');
+            try {
+                const tmpPath = path.join(os.tmpdir(), `transaksi_${Date.now()}.xlsx`);
+                const ok = await generateExportXLSX(from, tmpPath);
+                if (!ok) return msg.reply('📭 Belum ada data transaksi untuk di-export.');
+
+                const { MessageMedia } = require('whatsapp-web.js');
+                const media = MessageMedia.fromFilePath(tmpPath);
+                media.filename = `transaksi_${getBulanKey()}.xlsx`;
+                media.mimetype = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+                await msg.reply(media, undefined, {
+                    caption: `📊 *Export Data Transaksi*\n━━━━━━━━━━━━━━━━━\n✅ File Excel siap dibuka!\n\n• Baris kuning = pengeluaran\n• Baris hijau = pemasukan\n• Kolom nominal sudah terformat Rp\n• Ada filter & freeze header otomatis`
+                });
+                fs.unlinkSync(tmpPath);
+                resetState(from);
+            } catch (e) {
+                await msg.reply('❌ Gagal export. Coba lagi nanti.');
+            }
+            return;
         }
         if (['8','help','bantuan'].includes(lower)) return msg.reply(MSG.help());
         return msg.reply(`❓ Pilih 1-8.\n\n${MSG.menu()}`);
@@ -737,8 +842,6 @@ client.on('message', async msg => {
         const d = cur.data;
         const judul = lower === 'skip' ? d.toko : text;
         if (!judul || judul.length < 1) return msg.reply(`Ketik judul transaksi, atau *skip* untuk pakai nama toko.`);
-
-        // Re-analisis dengan judul
         const ai = await getAIAnalysis(d.toko, judul);
         const finalData = { ...d, judul, ai };
         setState(from, 'confirm', finalData);
@@ -749,7 +852,6 @@ client.on('message', async msg => {
     if (cur.step === 'confirm') {
         const d = cur.data;
 
-        // 1 = Simpan
         if (['1','ya','yes','ok','oke','simpan'].includes(lower)) {
             try {
                 const alert = await saveTransaction(from, d.namaUser || namaKontak, d);
@@ -761,19 +863,16 @@ client.on('message', async msg => {
             }
         }
 
-        // 2 = Ubah Judul
         if (['2'].includes(lower)) {
             setState(from, 'await_judul_edit', d);
             return msg.reply(`✏️ *Ubah Judul*\n\nJudul sekarang: *${d.judul}*\n\nKetik judul baru:`);
         }
 
-        // 3 = Ubah Nominal
         if (['3'].includes(lower)) {
             setState(from, 'await_nominal_edit', d);
             return msg.reply(`✏️ *Ubah Nominal*\n\nNominal sekarang: *Rp ${parseInt(d.nominal).toLocaleString('id-ID')}*\n\nKetik nominal baru:\n_Contoh: \`75000\`_`);
         }
 
-        // 4 = Batal
         if (['4','batal','cancel','tidak','no'].includes(lower)) {
             resetState(from); return msg.reply(MSG.cancelled());
         }
