@@ -1967,19 +1967,32 @@ client.on('ready', async () => {
 // ═══════════════════════════════════════════════════════════════
 client.on('message', async msg => {
     if (msg.isStatus) return;
-    const from      = msg.from;
+    let from = msg.from;
     if (from.endsWith('@g.us')) return;
 
     const text  = (msg.body || '').trim();
     const lower = text.toLowerCase();
 
-    let namaKontak = '';
+    // ── ID NORMALIZATION ─────────────────────────────────────
+    // Ambil nomor asli kontak untuk standarisasi (mengatasi @lid)
+    let contactObj = null;
     try {
-        const contact = await msg.getContact();
-        namaKontak = contact.pushname || contact.name || from.split('@')[0];
-    } catch (_) { namaKontak = from.split('@')[0]; }
+        contactObj = await msg.getContact();
+        if (contactObj.number) {
+            from = contactObj.number + '@c.us';
+        }
+    } catch (e) { 
+        console.error('⚠️ Gagal normalisasi ID:', e.message); 
+    }
 
-    console.log(`📩 ${namaKontak}: "${text.substring(0, 60)}"`);
+    let namaKontak = '';
+    if (contactObj) {
+        namaKontak = contactObj.pushname || contactObj.name || from.split('@')[0];
+    } else {
+        namaKontak = from.split('@')[0];
+    }
+
+    console.log(`📩 ${namaKontak} (${from}): "${text.substring(0, 60)}"`);
 
     await getOrCreateProfile(from, namaKontak).catch(() => {});
 
