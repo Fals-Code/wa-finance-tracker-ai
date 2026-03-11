@@ -206,6 +206,50 @@ async function getRiwayat(waNumber, limit = 10) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// READ DETAIL — ambil daftar transaksi + ID, dan detail 1 transaksi
+// ═══════════════════════════════════════════════════════════════
+async function getRecentWithId(waNumber, limit = 8) {
+    const { data } = await supabase.from('transaksi')
+        .select('id, judul, nama_toko, nominal, kategori, tipe, tanggal')
+        .eq('wa_number', waNumber)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+    return data || [];
+}
+
+async function getTransactionDetail(waNumber, trxId) {
+    const { data, error } = await supabase.from('transaksi')
+        .select('id, judul, nama_toko, nominal, kategori, sub_kategori, tipe, tanggal, catatan, sumber_dokumen, confidence_ai, status_validasi, created_at')
+        .eq('wa_number', waNumber)
+        .eq('id', trxId)
+        .single();
+    if (error || !data) return null;
+    return data;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// UPDATE & DELETE TRANSAKSI
+// ═══════════════════════════════════════════════════════════════
+async function updateTransaction(waNumber, trxId, field, value) {
+    const ALLOWED_FIELDS = ['judul', 'nominal', 'kategori', 'catatan'];
+    if (!ALLOWED_FIELDS.includes(field)) throw new Error('Field tidak valid');
+    const { error } = await supabase.from('transaksi')
+        .update({ [field]: value })
+        .eq('id', trxId)
+        .eq('wa_number', waNumber); // keamanan: hanya bisa edit milik sendiri
+    if (error) throw new Error(error.message);
+}
+
+async function deleteTransaction(waNumber, trxId) {
+    const { error } = await supabase.from('transaksi')
+        .delete()
+        .eq('id', trxId)
+        .eq('wa_number', waNumber); // keamanan: hanya bisa hapus milik sendiri
+    if (error) throw new Error(error.message);
+}
+
+
+// ═══════════════════════════════════════════════════════════════
 // EXPORT DATA — format XLSX rapi siap buka di Excel/Sheets
 // ═══════════════════════════════════════════════════════════════
 const { execFile } = require('child_process');
@@ -1564,8 +1608,9 @@ const MSG = {
         `6️⃣  Kategori Custom\n` +
         `7️⃣  Export Data (CSV)\n` +
         `8️⃣  Bantuan\n` +
+        `9️⃣  Detail Transaksi\n` +
         `━━━━━━━━━━━━━━━━━\n` +
-        `_Balas angka 1-8_`,
+        `_Balas angka 1-9 atau ketik perintah_`,
 
     chooseTipe: () =>
         `💳 *Catat Transaksi*\n━━━━━━━━━━━━━━━━━\n` +
@@ -1676,6 +1721,7 @@ const MSG = {
         `• \`laporan\` — Laporan bulan ini\n` +
         `• \`saldo\` — Saldo & ringkasan\n` +
         `• \`riwayat\` — 10 transaksi terakhir\n` +
+        `• \`detail\` — Lihat detail transaksi\n` +
         `• \`budget\` — Atur budget bulanan\n` +
         `• \`export\` — Download data Excel\n` +
         `• \`batal\` — Batalkan proses\n\n` +
@@ -1688,6 +1734,44 @@ const MSG = {
         `Set budget dulu agar dapat notif kalau hampir habis!\n\n` +
         `━━━━━━━━━━━━━━━━━\n` +
         `_Data tersimpan aman di cloud_ ☁️`,
+
+    detailList: (rows) => {
+        if (!rows || rows.length === 0) return `📭 Belum ada transaksi.`;
+        let msg = `🔎 *Pilih Transaksi untuk Lihat Detail*\n━━━━━━━━━━━━━━━━━\n`;
+        rows.forEach((r, i) => {
+            const tgl   = new Date(r.tanggal).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
+            const icon  = r.tipe === 'masuk' ? '💰' : '💸';
+            const label = r.judul || r.nama_toko || '-';
+            const nom   = parseInt(r.nominal).toLocaleString('id-ID');
+            msg += `*${i + 1}.* ${icon} ${label}\n`;
+            msg += `    ${tgl} | ${r.kategori} | Rp ${nom}\n`;
+        });
+        msg += `\n_Balas nomor (1-${rows.length}) untuk lihat detail_\n`;
+        msg += `_Ketik *batal* untuk kembali_`;
+        return msg;
+    },
+
+    detailTrx: (r) => {
+        const tgl = new Date(r.tanggal).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+        const createdAt = new Date(r.created_at).toLocaleString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+        const icon = r.tipe === 'masuk' ? '💰' : '💸';
+        let msg = `${icon} *Detail Transaksi*\n━━━━━━━━━━━━━━━━━\n`;
+        msg += `📌 *Judul     :* ${r.judul || '-'}\n`;
+        msg += `🏪 *Toko      :* ${r.nama_toko || '-'}\n`;
+        msg += `💵 *Nominal   :* Rp ${parseInt(r.nominal).toLocaleString('id-ID')}\n`;
+        msg += `🔄 *Tipe      :* ${r.tipe === 'masuk' ? 'Pemasukan 💰' : 'Pengeluaran 💸'}\n`;
+        msg += `🏷️ *Kategori  :* ${r.kategori || '-'}\n`;
+        msg += `   *Sub       :* ${r.sub_kategori || '-'}\n`;
+        msg += `📅 *Tanggal   :* ${tgl}\n`;
+        msg += `📝 *Catatan   :* ${r.catatan || '-'}\n`;
+        msg += `📄 *Sumber    :* ${r.sumber_dokumen || '-'}\n`;
+        msg += `🤖 *AI Status :* ${r.status_validasi || '-'} (${r.confidence_ai || 0}%)\n`;
+        msg += `🕐 *Dicatat   :* ${createdAt}\n`;
+        msg += `🔑 *ID        :* \`${r.id}\`\n`;
+        msg += `━━━━━━━━━━━━━━━━━\n`;
+        msg += `Ketik *menu* untuk kembali`;
+        return msg;
+    },
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -1793,14 +1877,39 @@ async function handlePhoto(msg, from, namaUser) {
 // ═══════════════════════════════════════════════════════════════
 const client = new Client({
     authStrategy: new LocalAuth(),
-    puppeteer: { headless: true, args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage','--disable-gpu'] },
+    puppeteer: {
+        headless: true,
+        timeout: 60000,   // 60 detik — toleran untuk koneksi lambat
+        args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage','--disable-gpu'],
+    },
 });
 
-client.on('qr', qr => { console.log('📱 Scan QR:'); qrcode.generate(qr, { small: true }); });
-client.on('auth_failure', msg => console.error('❌ Auth gagal:', msg));
-client.on('disconnected', reason => console.warn('⚠️ Terputus:', reason));
+let qrCount = 0;
+client.on('qr', qr => {
+    qrCount++;
+    console.log(`\n📱 Scan QR Code (percobaan ke-${qrCount}):\n`);
+    qrcode.generate(qr, { small: true });
+    if (qrCount >= 3) {
+        console.warn('⚠️  QR sudah di-refresh 3x dan tidak di-scan. Bot akan berhenti.');
+        console.warn('   Jalankan ulang: node index.js');
+        process.exit(0);
+    }
+});
+
+client.on('auth_failure', errMsg => {
+    console.error('❌ Auth gagal:', errMsg);
+    console.error('   Hapus folder .wwebjs_auth lalu jalankan ulang.');
+    process.exit(1);
+});
+
+client.on('disconnected', reason => {
+    console.warn('⚠️ Bot terputus:', reason);
+    console.warn('   Menghentikan proses. Jalankan ulang: node index.js');
+    process.exit(0);
+});
 
 client.on('ready', async () => {
+    qrCount = 0;
     console.log('✅ Finance Tracker Bot v6.2 Online!');
     await loadKnnDataset().catch(e => console.error('❌ KNN:', e.message));
     if (!GROQ_API_KEY) console.warn('⚠️  GROQ_API_KEY kosong — fallback AI nonaktif.');
@@ -1879,6 +1988,11 @@ client.on('message', async msg => {
         setState(from, 'await_category', {});
         return msg.reply(MSG.categoryMenu(cats));
     }
+    if (['detail','lihat'].includes(lower)) {
+        const rows = await getRecentWithId(from);
+        setState(from, 'await_detail_pick', { rows });
+        return msg.reply(MSG.detailList(rows));
+    }
 
     // ── IDLE ─────────────────────────────────────────────────
     if (cur.step === 'idle') {
@@ -1938,7 +2052,12 @@ client.on('message', async msg => {
             return;
         }
         if (['8','help','bantuan'].includes(lower)) return msg.reply(MSG.help());
-        return msg.reply(`❓ Pilih 1-8.\n\n${MSG.menu()}`);
+        if (['9','detail','lihat'].includes(lower)) {
+            const rows = await getRecentWithId(from);
+            setState(from, 'await_detail_pick', { rows });
+            return msg.reply(MSG.detailList(rows));
+        }
+        return msg.reply(`❓ Pilih 1-9.\n\n${MSG.menu()}`);
     }
 
     // ── AWAIT TIPE ───────────────────────────────────────────
@@ -1981,6 +2100,29 @@ client.on('message', async msg => {
     // ── AWAIT PHOTO ──────────────────────────────────────────
     if (cur.step === 'await_photo') {
         return msg.reply(`📸 Kirim foto struk atau bukti transfer, atau ketik *batal* untuk kembali.`);
+    }
+
+    // ── AWAIT DETAIL PICK ────────────────────────────────────
+    if (cur.step === 'await_detail_pick') {
+        const { rows } = cur.data;
+        const idx = parseInt(lower) - 1;
+
+        if (isNaN(idx) || idx < 0 || idx >= rows.length) {
+            return msg.reply(
+                `❓ Pilih nomor *1–${rows.length}*.\n` +
+                `_Atau ketik *batal* untuk kembali._`
+            );
+        }
+
+        const chosen = rows[idx];
+        const detail = await getTransactionDetail(from, chosen.id);
+        resetState(from);
+
+        if (!detail) {
+            return msg.reply(`❌ Transaksi tidak ditemukan atau sudah dihapus.\n\nKetik *menu* untuk kembali.`);
+        }
+
+        return msg.reply(MSG.detailTrx(detail));
     }
 
     // ── AWAIT TUJUAN TRANSFER (NEW!) ─────────────────────────
@@ -2144,4 +2286,11 @@ client.on('message', async msg => {
     return msg.reply(MSG.menu());
 });
 
-client.initialize();
+client.initialize().catch(err => {
+    console.error('❌ Gagal menginisialisasi bot:', err.message);
+    console.error('   Kemungkinan penyebab:');
+    console.error('   1. Tidak ada koneksi internet / tidak bisa akses web.whatsapp.com');
+    console.error('   2. QR timeout karena tidak di-scan');
+    console.error('   3. Sesi lama corrupt — hapus folder .wwebjs_auth dan coba lagi');
+    process.exit(1);
+});
