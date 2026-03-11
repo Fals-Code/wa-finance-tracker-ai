@@ -15,13 +15,14 @@ const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 async function getOrCreateProfile(waNumber, nama) {
-    const { data } = await supabase.from('user_profiles').select('*').eq('wa_number', waNumber).single();
+    const { data } = await supabase.from('user_profiles').select('*').eq('wa_number', waNumber).maybeSingle();
     if (data) {
         await supabase.from('user_profiles').update({ last_active: new Date().toISOString(), nama }).eq('wa_number', waNumber);
         return data;
     }
-    await supabase.from('user_profiles').insert({ wa_number: waNumber, nama });
-    return { wa_number: waNumber, nama, is_new: true };
+    const { data: newData, error } = await supabase.from('user_profiles').insert({ wa_number: waNumber, nama }).select().single();
+    if (error) console.error('Error creating profile:', error.message);
+    return newData || { wa_number: waNumber, nama, is_new: true };
 }
 
 async function isNewUser(waNumber) {
@@ -1593,15 +1594,15 @@ function isTimedOut(s)                 { return Date.now() - s.lastActive > STAT
 // PESAN TEMPLATE
 // ═══════════════════════════════════════════════════════════════
 const MSG = {
-    welcome: (nama) =>
+    welcome: (nama, from) =>
         `👋 Halo *${nama}*! Selamat datang di *Finance Tracker Bot* 🤖\n\n` +
         `Catat semua transaksi kamu dengan mudah!\n\n` +
-        `🌐 *Web Dashboard:* https://wa-finance-tracker-dashboard.vercel.app\n\n` +
-        MSG._menuList(),
+        `🌐 *Web Dashboard:* https://wa-finance-tracker-dashboard.vercel.app/?id=${from}\n\n` +
+        MSG._menuList(from),
 
-    menu: () => `📋 *MENU UTAMA*\n━━━━━━━━━━━━━━━━━\n` + MSG._menuList(),
+    menu: (from) => `📋 *MENU UTAMA*\n━━━━━━━━━━━━━━━━━\n` + MSG._menuList(from),
 
-    _menuList: () =>
+    _menuList: (from) =>
         `1️⃣  Catat Transaksi\n` +
         `2️⃣  Laporan Bulanan\n` +
         `3️⃣  Saldo & Ringkasan\n` +
@@ -1615,7 +1616,7 @@ const MSG = {
         `🌐  *11. Web Dashboard*\n` +
         `━━━━━━━━━━━━━━━━━\n` +
         `_Balas angka 1-11 atau ketik perintah_\n\n` +
-        `💻 *Akses Web:* https://wa-finance-tracker-dashboard.vercel.app`,
+        `💻 *Akses Web:* https://wa-finance-tracker-dashboard.vercel.app/?id=${from}`,
 
     chooseTipe: () =>
         `💳 *Catat Transaksi*\n━━━━━━━━━━━━━━━━━\n` +
@@ -1997,7 +1998,7 @@ client.on('message', async msg => {
 
     // ── PERINTAH GLOBAL ──────────────────────────────────────
     if (['batal','cancel'].includes(lower))     { resetState(from); return msg.reply(MSG.cancelled()); }
-    if (['menu','mulai','start'].includes(lower)) { setState(from,'menu',{}); return msg.reply(MSG.menu()); }
+    if (['menu','mulai','start'].includes(lower)) { setState(from,'menu',{}); return msg.reply(MSG.menu(from)); }
     if (['laporan','report'].includes(lower))    return msg.reply(await getLaporan(from).catch(e=>'❌ '+e.message));
     if (['saldo','balance'].includes(lower))     return msg.reply(await getSaldo(from).catch(e=>'❌ '+e.message));
     if (['riwayat','history'].includes(lower))   return msg.reply(await getRiwayat(from).catch(e=>'❌ '+e.message));
@@ -2039,6 +2040,11 @@ client.on('message', async msg => {
         setState(from, 'await_detail_pick', { rows });
         return msg.reply(MSG.detailList(rows));
     }
+    if (['edit','hapus','ubah'].includes(lower)) {
+        const rows = await getRecentWithId(from);
+        setState(from, 'await_edit_select', { rows });
+        return msg.reply(MSG.editList(rows));
+    }
     if (lower === 'notif on' || lower === 'notif off') {
         const isEnable = lower === 'notif on';
         scheduler.toggleNotif(from, isEnable);
@@ -2063,7 +2069,7 @@ client.on('message', async msg => {
         }
         const newUser = await isNewUser(from);
         setState(from, 'menu', {});
-        return msg.reply(newUser ? MSG.welcome(namaKontak) : MSG.menu());
+        return msg.reply(newUser ? MSG.welcome(namaKontak, from) : MSG.menu(from));
     }
 
     // ── MENU ─────────────────────────────────────────────────
@@ -2107,10 +2113,10 @@ client.on('message', async msg => {
             return;
         }
         if (['8','help','bantuan'].includes(lower)) return msg.reply(MSG.help());
-        if (['9','detail','lihat'].includes(lower)) {
+        if (['9','edit','hapus','ubah'].includes(lower)) {
             const rows = await getRecentWithId(from);
-            setState(from, 'await_detail_pick', { rows });
-            return msg.reply(MSG.detailList(rows));
+            setState(from, 'await_edit_select', { rows });
+            return msg.reply(MSG.editList(rows));
         }
         if (['10','notif','pengaturan notif','notifikasi'].includes(lower)) {
             const isEnable = scheduler.checkNotif(from);
@@ -2127,9 +2133,9 @@ client.on('message', async msg => {
             );
         }
         if (['11','dashboard','web'].includes(lower)) {
-            return msg.reply(`🌐 *Web Dashboard Finance Tracker*\n━━━━━━━━━━━━━━━━━\n\nDashboard kamu sekarang online! Buka link berikut dari browser PC atau HP:\n\n👉 https://wa-finance-tracker-dashboard.vercel.app\n\n_Gunakan nomor WA kamu untuk masuk._`);
+            return msg.reply(`🌐 *Web Dashboard Finance Tracker*\n━━━━━━━━━━━━━━━━━\n\nDashboard kamu sekarang online! Buka link berikut dari browser PC atau HP:\n\n👉 https://wa-finance-tracker-dashboard.vercel.app/?id=${from}\n\n_Nomor kamu akan terisi otomatis._`);
         }
-        return msg.reply(`❓ Pilih 1-11.\n\n${MSG.menu()}`);
+        return msg.reply(`❓ Pilih 1-11.\n\n${MSG.menu(from)}`);
     }
 
     // ── AWAIT TIPE ───────────────────────────────────────────
@@ -2199,22 +2205,41 @@ client.on('message', async msg => {
 
     // ── AWAIT EDIT SELECT ────────────────────────────────────
     if (cur.step === 'await_edit_select') {
-        const { rows } = cur.data;
-        const isDelete = lower === 'hapus';
-        const idx = isDelete ? -1 : parseInt(lower) - 1;
+        const { rows, intent } = cur.data;
+        
+        // 1. Cek format "hapus [angka]"
+        const hapusMatch = lower.match(/^hapus\s+(\d+)$/);
+        if (hapusMatch) {
+            const idx = parseInt(hapusMatch[1]) - 1;
+            if (idx >= 0 && idx < rows.length) {
+                const chosen = rows[idx];
+                setState(from, 'await_delete_confirm', { trx: chosen });
+                return msg.reply(MSG.deleteConfirm(chosen));
+            }
+        }
 
-        if (!isDelete && (isNaN(idx) || idx < 0 || idx >= rows.length)) {
+        // 2. Jika user cuma ketik "hapus", set intent jadi delete
+        if (lower === 'hapus') {
+            setState(from, 'await_edit_select', { rows, intent: 'delete' });
+            return msg.reply(`❓ Transaksi nomor berapa yang ingin dihapus? (1-${rows.length})\nKetik nomornya saja, contoh: \`1\`\nAtau ketik *batal* untuk kembali.`);
+        }
+
+        const idx = parseInt(lower) - 1;
+
+        if (isNaN(idx) || idx < 0 || idx >= rows.length) {
             return msg.reply(
-                `❓ Pilih nomor *1–${rows.length}* untuk edit.\n` +
+                `❓ Pilih nomor *1–${rows.length}* untuk ${intent === 'delete' ? 'dihapus' : 'diedit'}.\n` +
                 `_Atau ketik *batal* untuk kembali._`
             );
         }
 
-        if (isDelete) {
-            return msg.reply(`❓ Transaksi nomor berapa yang ingin dihapus? (1-${rows.length})\nKetik *batal* untuk kembali.`);
+        const chosen = rows[idx];
+        
+        if (intent === 'delete') {
+            setState(from, 'await_delete_confirm', { trx: chosen });
+            return msg.reply(MSG.deleteConfirm(chosen));
         }
 
-        const chosen = rows[idx];
         setState(from, 'await_edit_action', { trx: chosen });
         return msg.reply(MSG.editMenu(chosen));
     }
@@ -2223,7 +2248,7 @@ client.on('message', async msg => {
     if (cur.step === 'await_edit_action') {
         const { trx } = cur.data;
 
-        if (lower === 'hapus') {
+        if (lower.includes('hapus')) {
             setState(from, 'await_delete_confirm', { trx });
             return msg.reply(MSG.deleteConfirm(trx));
         }
