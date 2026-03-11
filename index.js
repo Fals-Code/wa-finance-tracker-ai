@@ -2482,6 +2482,51 @@ client.on('message', async msg => {
     return msg.reply(MSG.menu());
 });
 
+// ═══════════════════════════════════════════════════════════════
+// REALTIME LISTENER — untuk notifikasi authcode dashboard
+// ═══════════════════════════════════════════════════════════════
+function initRealtimeListener(client, supabase) {
+    console.log('📡 Realtime listener diinisialisasi...');
+    
+    const channel = supabase
+        .channel('public:user_profiles')
+        .on(
+            'postgres_changes',
+            {
+                event: 'UPDATE',
+                schema: 'public',
+                table: 'user_profiles',
+            },
+            async (payload) => {
+                const { old: oldRow, new: newRow } = payload;
+                
+                // Jika authcode baru muncul atau berubah
+                if (newRow.authcode && newRow.authcode !== oldRow.authcode) {
+                    console.log(`🔑 Authcode baru untuk ${newRow.wa_number}: ${newRow.authcode}`);
+                    
+                    const msg = `🔐 *Kode Autentikasi Dashboard*\n━━━━━━━━━━━━━━━━━\n` +
+                                `Kode Anda adalah: *${newRow.authcode}*\n\n` +
+                                `_Berlaku untuk 5 menit. Jangan berikan kode ini kepada siapapun._`;
+                    
+                    try {
+                        await client.sendMessage(newRow.wa_number, msg);
+                        console.log(`✅ Authcode terkirim ke ${newRow.wa_number}`);
+                    } catch (err) {
+                        console.error(`❌ Gagal kirim authcode ke ${newRow.wa_number}:`, err.message);
+                    }
+                }
+            }
+        )
+        .subscribe();
+
+    return channel;
+}
+
+client.on('ready', () => {
+    console.log('🚀 Client is ready!');
+    initRealtimeListener(client, supabase);
+});
+
 client.initialize().catch(err => {
     console.error('❌ Gagal menginisialisasi bot:', err.message);
     console.error('   Kemungkinan penyebab:');
