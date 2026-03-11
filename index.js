@@ -25,6 +25,35 @@ async function getOrCreateProfile(waNumber, nama) {
     return newData || { wa_number: waNumber, nama, is_new: true };
 }
 
+async function migrateUser(oldId, newId) {
+    if (oldId === newId) return;
+    
+    console.log(`🔄 Migrasi data: ${oldId} -> ${newId}`);
+    
+    // 1. Pindahkan Transaksi
+    await supabase.from('transaksi').update({ wa_number: newId }).eq('wa_number', oldId);
+    
+    // 2. Pindahkan Budgets
+    await supabase.from('user_budgets').update({ wa_number: newId }).eq('wa_number', oldId);
+    
+    // 3. Pindahkan Categories
+    await supabase.from('user_categories').update({ wa_number: newId }).eq('wa_number', oldId);
+    
+    // 4. Update Profile (atau pindahkan data profil jika perlu)
+    const { data: oldProfile } = await supabase.from('user_profiles').select('*').eq('wa_number', oldId).maybeSingle();
+    if (oldProfile) {
+        await supabase.from('user_profiles').update({ 
+            authcode: oldProfile.authcode,
+            last_active: oldProfile.last_active 
+        }).eq('wa_number', newId);
+        
+        // Hapus profil lama agar tidak dobel
+        await supabase.from('user_profiles').delete().eq('wa_number', oldId);
+    }
+    
+    console.log(`✅ Migrasi selesai untuk ${newId}`);
+}
+
 async function isNewUser(waNumber) {
     const { count } = await supabase.from('transaksi').select('id', { count: 'exact', head: true }).eq('wa_number', waNumber);
     return count === 0;
@@ -1975,6 +2004,7 @@ client.on('message', async msg => {
 
     // ── ID NORMALIZATION ─────────────────────────────────────
     // Ambil nomor asli kontak untuk standarisasi (mengatasi @lid)
+    const originalFrom = from; // Simpan ID asli (bisa @lid)
     let contactObj = null;
     try {
         contactObj = await msg.getContact();
@@ -1983,6 +2013,11 @@ client.on('message', async msg => {
         }
     } catch (e) { 
         console.error('⚠️ Gagal normalisasi ID:', e.message); 
+    }
+
+    // Cek apakah perlu migrasi dari ID lama ke ID baru
+    if (originalFrom !== from) {
+        await migrateUser(originalFrom, from).catch(e => console.error('❌ Gagal migrasi:', e.message));
     }
 
     let namaKontak = '';
