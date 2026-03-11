@@ -1,0 +1,8 @@
+token.json
+credentials.json
+.env
+.wwebjs_auth/
+.wwebjs_cache/
+node_modules/
+*.traineddata
+generate-token.js
