@@ -2,6 +2,7 @@ const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const { createClient } = require('@supabase/supabase-js');
 const Tesseract = require('tesseract.js');
+const scheduler = require('./scheduler');
 const fs   = require('fs');
 const path = require('path');
 const os   = require('os');
@@ -1595,6 +1596,7 @@ const MSG = {
     welcome: (nama) =>
         `👋 Halo *${nama}*! Selamat datang di *Finance Tracker Bot* 🤖\n\n` +
         `Catat semua transaksi kamu dengan mudah!\n\n` +
+        `🌐 *Web Dashboard:* http://localhost:3000\n\n` +
         MSG._menuList(),
 
     menu: () => `📋 *MENU UTAMA*\n━━━━━━━━━━━━━━━━━\n` + MSG._menuList(),
@@ -1608,9 +1610,13 @@ const MSG = {
         `6️⃣  Kategori Custom\n` +
         `7️⃣  Export Data (CSV)\n` +
         `8️⃣  Bantuan\n` +
-        `9️⃣  Detail Transaksi\n` +
+        `9️⃣  Edit / Hapus Transaksi\n` +
+        `🔟  Pengaturan Notif Otomatis\n` +
+        `🌐  *11. Web Dashboard*\n` +
         `━━━━━━━━━━━━━━━━━\n` +
-        `_Balas angka 1-9 atau ketik perintah_`,
+        `_Balas angka 1-11 atau ketik perintah_\n\n` +
+        `💻 *Akses Web:* http://localhost:3000\n` +
+        `📱 *Akses HP:* Gunakan IP PC (satu Wi-Fi)`,
 
     chooseTipe: () =>
         `💳 *Catat Transaksi*\n━━━━━━━━━━━━━━━━━\n` +
@@ -1724,6 +1730,7 @@ const MSG = {
         `• \`detail\` — Lihat detail transaksi\n` +
         `• \`budget\` — Atur budget bulanan\n` +
         `• \`export\` — Download data Excel\n` +
+        `• \`notif on/off\` — Atur notifikasi otomatis\n` +
         `• \`batal\` — Batalkan proses\n\n` +
         `*📝 Input Cepat:*\n` +
         `\`Indomaret 50000\`\n\n` +
@@ -1770,6 +1777,45 @@ const MSG = {
         msg += `🔑 *ID        :* \`${r.id}\`\n`;
         msg += `━━━━━━━━━━━━━━━━━\n`;
         msg += `Ketik *menu* untuk kembali`;
+        return msg;
+    },
+
+    editList: (rows) => {
+        if (!rows || rows.length === 0) return `📭 Belum ada transaksi.`;
+        let msg = `✏️ *Pilih Transaksi untuk Edit / Hapus*\n━━━━━━━━━━━━━━━━━\n`;
+        rows.forEach((r, i) => {
+            const label = r.judul || r.nama_toko || '-';
+            const nom   = parseInt(r.nominal).toLocaleString('id-ID');
+            msg += `*${i + 1}.* ${label} (Rp ${nom})\n`;
+        });
+        msg += `\n_Balas nomor (1-${rows.length})_\n`;
+        msg += `_Ketik *batal* untuk kembali_`;
+        return msg;
+    },
+
+    editMenu: (r) => {
+        const icon = r.tipe === 'masuk' ? '💰' : '💸';
+        let msg = `✏️ *Edit Transaksi*\n━━━━━━━━━━━━━━━━━\n`;
+        msg += `${icon} *${r.judul || r.nama_toko || '-'}* (Rp ${parseInt(r.nominal).toLocaleString('id-ID')})\n`;
+        msg += `🏷️ Kategori: ${r.kategori}\n\n`;
+        msg += `Mau ubah apa?\n`;
+        msg += `1️⃣ Judul\n`;
+        msg += `2️⃣ Nominal\n`;
+        msg += `3️⃣ Kategori\n`;
+        msg += `4️⃣ Catatan\n`;
+        msg += `🗑️ Hapus Transaksi Ini\n`;
+        msg += `━━━━━━━━━━━━━━━━━\n`;
+        msg += `_Balas angka 1-4, atau ketik *hapus*_\n`;
+        msg += `_Ketik *batal* untuk kembali_`;
+        return msg;
+    },
+
+    deleteConfirm: (r) => {
+        let msg = `⚠️ *KONFIRMASI HAPUS*\n━━━━━━━━━━━━━━━━━\n`;
+        msg += `Apakah kamu yakin ingin MENGHAPUS transaksi ini permanen?\n\n`;
+        msg += `*${r.judul || r.nama_toko}* — Rp ${parseInt(r.nominal).toLocaleString('id-ID')}\n\n`;
+        msg += `Ketik *YA* untuk menghapus.\n`;
+        msg += `Ketik *BATAL* untuk membatalkan.`;
         return msg;
     },
 };
@@ -1911,6 +1957,7 @@ client.on('disconnected', reason => {
 client.on('ready', async () => {
     qrCount = 0;
     console.log('✅ Finance Tracker Bot v6.2 Online!');
+    scheduler.initScheduler(client, supabase, getLaporan);
     await loadKnnDataset().catch(e => console.error('❌ KNN:', e.message));
     if (!GROQ_API_KEY) console.warn('⚠️  GROQ_API_KEY kosong — fallback AI nonaktif.');
 });
@@ -1993,6 +2040,15 @@ client.on('message', async msg => {
         setState(from, 'await_detail_pick', { rows });
         return msg.reply(MSG.detailList(rows));
     }
+    if (lower === 'notif on' || lower === 'notif off') {
+        const isEnable = lower === 'notif on';
+        scheduler.toggleNotif(from, isEnable);
+        if (isEnable) {
+            return msg.reply(`🔔 *Notifikasi Otomatis DIAKTIFKAN*\n━━━━━━━━━━━━━━━━━\nKamu akan menerima:\n• Ringkasan Harian (Pukul 21:00)\n• Ringkasan Mingguan (Tiap Senin Pukul 07:00)\n• Laporan Bulanan (Tiap Tanggal 1 Pukul 08:00)`);
+        } else {
+            return msg.reply(`🔕 *Notifikasi Otomatis DIMATIKAN*`);
+        }
+    }
 
     // ── IDLE ─────────────────────────────────────────────────
     if (cur.step === 'idle') {
@@ -2057,7 +2113,24 @@ client.on('message', async msg => {
             setState(from, 'await_detail_pick', { rows });
             return msg.reply(MSG.detailList(rows));
         }
-        return msg.reply(`❓ Pilih 1-9.\n\n${MSG.menu()}`);
+        if (['10','notif','pengaturan notif','notifikasi'].includes(lower)) {
+            const isEnable = scheduler.checkNotif(from);
+            return msg.reply(
+                `🔔 *Pengaturan Notifikasi*\n━━━━━━━━━━━━━━━━━\n` +
+                `Status saat ini: *${isEnable ? 'AKTIF ✅' : 'NONAKTIF ❌'}*\n\n` +
+                `Jika aktif, bot akan mengirim:\n` +
+                `• Ringkasan Harian (21:00)\n` +
+                `• Laporan Mingguan (Senin 07:00)\n` +
+                `• Laporan Bulanan (Tgl 1 08:00)\n\n` +
+                `_Ketik *notif on* untuk mengaktifkan._\n` +
+                `_Ketik *notif off* untuk mematikan._\n\n` +
+                `Ketik *menu* untuk kembali.`
+            );
+        }
+        if (['11','dashboard','web'].includes(lower)) {
+            return msg.reply(`🌐 *Web Dashboard Finance Tracker*\n━━━━━━━━━━━━━━━━━\n\nUntuk akses dari browser:\n👉 http://localhost:3000\n\n💡 *Akses dari HP (Satu Wi-Fi):*\n1. Cek IP Laptop kamu (ketik *ipconfig* di CMD)\n2. Buka di browser HP: *http://[IP-KAMU]:3000*\n\n_Gunakan nomor WA kamu untuk masuk._`);
+        }
+        return msg.reply(`❓ Pilih 1-11.\n\n${MSG.menu()}`);
     }
 
     // ── AWAIT TIPE ───────────────────────────────────────────
@@ -2123,6 +2196,105 @@ client.on('message', async msg => {
         }
 
         return msg.reply(MSG.detailTrx(detail));
+    }
+
+    // ── AWAIT EDIT SELECT ────────────────────────────────────
+    if (cur.step === 'await_edit_select') {
+        const { rows } = cur.data;
+        const isDelete = lower === 'hapus';
+        const idx = isDelete ? -1 : parseInt(lower) - 1;
+
+        if (!isDelete && (isNaN(idx) || idx < 0 || idx >= rows.length)) {
+            return msg.reply(
+                `❓ Pilih nomor *1–${rows.length}* untuk edit.\n` +
+                `_Atau ketik *batal* untuk kembali._`
+            );
+        }
+
+        if (isDelete) {
+            return msg.reply(`❓ Transaksi nomor berapa yang ingin dihapus? (1-${rows.length})\nKetik *batal* untuk kembali.`);
+        }
+
+        const chosen = rows[idx];
+        setState(from, 'await_edit_action', { trx: chosen });
+        return msg.reply(MSG.editMenu(chosen));
+    }
+
+    // ── AWAIT EDIT ACTION (PILIH FIELD / HAPUS) ──────────────
+    if (cur.step === 'await_edit_action') {
+        const { trx } = cur.data;
+
+        if (lower === 'hapus') {
+            setState(from, 'await_delete_confirm', { trx });
+            return msg.reply(MSG.deleteConfirm(trx));
+        }
+
+        const fieldMap = { '1': 'judul', '2': 'nominal', '3': 'kategori', '4': 'catatan' };
+        const fieldName = fieldMap[lower];
+
+        if (!fieldName) {
+            return msg.reply(`❓ Balas 1-4 untuk memilih apa yang diubah, atau ketik *hapus*.\nKetik *batal* untuk kembali.`);
+        }
+
+        setState(from, 'await_edit_value', { trx, field: fieldName });
+
+        if (fieldName === 'kategori') {
+            return msg.reply(
+                `🏷️ *Pilih Kategori Baru*\n━━━━━━━━━━━━━━━━━\n` +
+                `1. Makanan & Minuman\n2. Transportasi\n3. Kebutuhan Pokok\n` +
+                `4. Kesehatan\n5. Hiburan\n6. Belanja Online\n7. Fashion\n` +
+                `8. Tagihan\n9. Pendidikan\n10. Rumah Tangga\n11. Perjalanan\n12. Investasi\n13. Lain-lain\n\n` +
+                `_Balas angka 1-13_`
+            );
+        }
+
+        return msg.reply(`✏️ *Ubah ${fieldName.toUpperCase()}*\n\nNilai lama: *${trx[fieldName] || '-'}*\n\nKetik nilai baru:`);
+    }
+
+    // ── AWAIT EDIT VALUE ─────────────────────────────────────
+    if (cur.step === 'await_edit_value') {
+        const { trx, field } = cur.data;
+        let newValue = text;
+
+        if (field === 'nominal') {
+            newValue = parseInt(text.replace(/\./g,'').replace(/,/g,'').replace(/[^0-9]/g,''));
+            if (isNaN(newValue) || newValue <= 0) return msg.reply(`❌ Nominal tidak valid.\nContoh: \`75000\`\n\nCoba lagi:`);
+        } else if (field === 'kategori') {
+            const kategoriMap = {
+                '1':'Makanan & Minuman','2':'Transportasi','3':'Kebutuhan Pokok',
+                '4':'Kesehatan','5':'Hiburan','6':'Belanja Online','7':'Fashion',
+                '8':'Tagihan','9':'Pendidikan','10':'Rumah Tangga','11':'Perjalanan',
+                '12':'Investasi','13':'Lain-lain',
+            };
+            newValue = kategoriMap[lower] || text;
+            if (!kategoriMap[lower] && newValue.length < 3) {
+                return msg.reply(`❌ Kategori tidak valid. Balas angka 1-13.`);
+            }
+        }
+
+        try {
+            await updateTransaction(from, trx.id, field, newValue);
+            resetState(from);
+            return msg.reply(`✅ *Transaksi Diperbarui!*\n\n${field.toUpperCase()}: ${trx[field] || '-'} ➡️ *${newValue}*\n\nKetik *menu* untuk kembali.`);
+        } catch (e) {
+            return msg.reply(`❌ Gagal mengubah: ${e.message}`);
+        }
+    }
+
+    // ── AWAIT DELETE CONFIRM ─────────────────────────────────
+    if (cur.step === 'await_delete_confirm') {
+        const { trx } = cur.data;
+        if (lower === 'ya') {
+            try {
+                await deleteTransaction(from, trx.id);
+                resetState(from);
+                return msg.reply(`✅ *Transaksi Berhasil Dihapus*\n\n_${trx.judul || trx.nama_toko}_ (Rp ${parseInt(trx.nominal).toLocaleString('id-ID')}) telah dihapus secara permanen.\n\nKetik *menu* untuk kembali.`);
+            } catch (e) {
+                return msg.reply(`❌ Gagal menghapus: ${e.message}`);
+            }
+        }
+        resetState(from);
+        return msg.reply(MSG.cancelled());
     }
 
     // ── AWAIT TUJUAN TRANSFER (NEW!) ─────────────────────────

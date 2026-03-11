@@ -1,4 +1,5 @@
 token.json
+user_settings.json
 credentials.json
 .env
 .wwebjs_auth/
