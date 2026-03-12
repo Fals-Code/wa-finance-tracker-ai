@@ -2559,34 +2559,34 @@ client.on('message', async msg => {
     return msg.reply(MSG.menu());
 });
 
-// ═══════════════════════════════════════════════════════════════
-// REALTIME LISTENER — untuk notifikasi authcode dashboard
-// ═══════════════════════════════════════════════════════════════
 function initRealtimeListener(client, supabase) {
-    console.log('📡 Realtime listener diinisialisasi...');
 
-    const channel = supabase
-        .channel('public:user_profiles')
-        .on(
-            'postgres_changes',
-            {
-                event: 'UPDATE',
-                schema: 'public',
-                table: 'user_profiles',
-            },
-            async (payload) => {
+  console.log('📡 Realtime listener diinisialisasi...');
 
-                const oldRow = payload.old;
-                const newRow = payload.new;
+  const channel = supabase
+    .channel('public:user_profiles')
+    .on(
+      'postgres_changes',
+      {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'user_profiles'
+      },
+      async (payload) => {
 
-                if (!newRow) return;
+        const oldRow = payload.old;
+        const newRow = payload.new;
 
-                // kirim authcode hanya jika berubah
-                if (newRow.authcode && oldRow?.authcode !== newRow.authcode) {
+        if (
+          newRow &&
+          newRow.authcode &&
+          (!oldRow || oldRow.authcode !== newRow.authcode) &&
+          newRow.authcode_requested === true
+        ) {
 
-                    console.log(`🔑 Authcode baru untuk ${newRow.wa_number}`);
+          console.log(`🔑 Authcode baru untuk ${newRow.wa_number}`);
 
-                    const msg =
+          const msg =
 `🔐 *Kode Autentikasi Dashboard*
 ━━━━━━━━━━━━━━━━━
 Kode Anda: *${newRow.authcode}*
@@ -2594,20 +2594,33 @@ Kode Anda: *${newRow.authcode}*
 ⏳ Berlaku 5 menit
 ⚠️ Jangan bagikan kode ini kepada siapapun.`;
 
-                    try {
-                        await client.sendMessage(newRow.wa_number, msg);
-                        console.log(`✅ Authcode terkirim ke ${newRow.wa_number}`);
-                    } catch (err) {
-                        console.error(`❌ Gagal kirim authcode:`, err.message);
-                    }
-                }
-            }
-        )
-        .subscribe((status) => {
-            console.log("📡 Supabase realtime status:", status);
-        });
+          try {
 
-    return channel;
+            await client.sendMessage(newRow.wa_number, msg);
+            console.log(`✅ Authcode terkirim ke ${newRow.wa_number}`);
+
+            await supabase
+              .from("user_profiles")
+              .update({
+                authcode_requested: false
+              })
+              .eq("wa_number", newRow.wa_number);
+
+          } catch (err) {
+
+            console.error(`❌ Gagal kirim authcode:`, err.message);
+
+          }
+
+        }
+
+      }
+    )
+    .subscribe((status) => {
+      console.log("📡 Supabase realtime status:", status);
+    });
+
+  return channel;
 }
 
 client.on('ready', () => {
