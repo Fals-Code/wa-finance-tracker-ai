@@ -1634,7 +1634,6 @@ const MSG = {
     welcome: (nama, from) =>
         `👋 Halo *${nama}*! Selamat datang di *Finance Tracker Bot* 🤖\n\n` +
         `Catat semua transaksi kamu dengan mudah!\n\n` +
-        `🌐 *Web Dashboard:* https://wa-finance-tracker-dashboard.vercel.app/?id=${from}\n\n` +
         MSG._menuList(from),
 
     menu: (from) => `📋 *MENU UTAMA*\n━━━━━━━━━━━━━━━━━\n` + MSG._menuList(from),
@@ -1650,9 +1649,8 @@ const MSG = {
         `8️⃣  Bantuan\n` +
         `9️⃣  Edit / Hapus Transaksi\n` +
         `🔟  Pengaturan Notif Otomatis\n` +
-        `🌐  *11. Web Dashboard*\n` +
         `━━━━━━━━━━━━━━━━━\n` +
-        `_Balas angka 1-11 atau ketik perintah_\n\n` +
+        `_Balas angka 1-10 atau ketik perintah_\n\n` +
         `💻 *Akses Web:* https://wa-finance-tracker-dashboard.vercel.app/?id=${from}`,
 
     chooseTipe: () =>
@@ -2197,10 +2195,7 @@ client.on('message', async msg => {
                 `Ketik *menu* untuk kembali.`
             );
         }
-        if (['11','dashboard','web'].includes(lower)) {
-            return msg.reply(`🌐 *Web Dashboard Finance Tracker*\n━━━━━━━━━━━━━━━━━\n\nDashboard kamu sekarang online! Buka link berikut dari browser PC atau HP:\n\n👉 https://wa-finance-tracker-dashboard.vercel.app/?id=${from}\n\n_Nomor kamu akan terisi otomatis._`);
-        }
-        return msg.reply(`❓ Pilih 1-11.\n\n${MSG.menu(from)}`);
+        return msg.reply(`❓ Pilih 1-10.\n\n${MSG.menu(from)}`);
     }
 
     // ── AWAIT TIPE ───────────────────────────────────────────
@@ -2569,7 +2564,7 @@ client.on('message', async msg => {
 // ═══════════════════════════════════════════════════════════════
 function initRealtimeListener(client, supabase) {
     console.log('📡 Realtime listener diinisialisasi...');
-    
+
     const channel = supabase
         .channel('public:user_profiles')
         .on(
@@ -2580,26 +2575,37 @@ function initRealtimeListener(client, supabase) {
                 table: 'user_profiles',
             },
             async (payload) => {
-                const { old: oldRow, new: newRow } = payload;
-                
-                // Jika authcode baru muncul atau berubah
-                if (newRow.authcode && newRow.authcode !== oldRow.authcode) {
-                    console.log(`🔑 Authcode baru untuk ${newRow.wa_number}: ${newRow.authcode}`);
-                    
-                    const msg = `🔐 *Kode Autentikasi Dashboard*\n━━━━━━━━━━━━━━━━━\n` +
-                                `Kode Anda adalah: *${newRow.authcode}*\n\n` +
-                                `_Berlaku untuk 5 menit. Jangan berikan kode ini kepada siapapun._`;
-                    
+
+                const oldRow = payload.old;
+                const newRow = payload.new;
+
+                if (!newRow) return;
+
+                // kirim authcode hanya jika berubah
+                if (newRow.authcode && oldRow?.authcode !== newRow.authcode) {
+
+                    console.log(`🔑 Authcode baru untuk ${newRow.wa_number}`);
+
+                    const msg =
+`🔐 *Kode Autentikasi Dashboard*
+━━━━━━━━━━━━━━━━━
+Kode Anda: *${newRow.authcode}*
+
+⏳ Berlaku 5 menit
+⚠️ Jangan bagikan kode ini kepada siapapun.`;
+
                     try {
                         await client.sendMessage(newRow.wa_number, msg);
                         console.log(`✅ Authcode terkirim ke ${newRow.wa_number}`);
                     } catch (err) {
-                        console.error(`❌ Gagal kirim authcode ke ${newRow.wa_number}:`, err.message);
+                        console.error(`❌ Gagal kirim authcode:`, err.message);
                     }
                 }
             }
         )
-        .subscribe();
+        .subscribe((status) => {
+            console.log("📡 Supabase realtime status:", status);
+        });
 
     return channel;
 }
