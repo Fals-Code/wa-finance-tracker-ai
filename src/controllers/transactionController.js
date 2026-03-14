@@ -11,7 +11,9 @@ class TransactionController {
         this.aiService = services.ai;
         this.budgetService = services.budget;
         this.aiLearning = services.aiLearning;
-        this.semanticAI = services.semanticAI; // For semantic grouping
+        this.semanticAI = services.semanticAI; 
+        this.anomalyService = services.anomaly; // Added
+        this.predictionService = services.prediction; // Added
         this.logger = logger;
     }
 
@@ -24,11 +26,18 @@ class TransactionController {
             
             const { deskripsi, nominal, tipe } = parsed;
             
-            // Duplicate Detection
+            // 1. Duplicate Detection
             const isDup = await this.transactionService.isDuplicate(from, nominal, deskripsi);
             if (isDup) {
                 setState(from, 'await_duplicate_confirm', { deskripsi, nominal, tipe, namaUser });
                 return msg.reply(`⚠️ *Transaksi yang sama terdeteksi.*\nApakah ini transaksi baru atau duplikat?\n\n1. Simpan\n2. Abaikan (Duplikat)`);
+            }
+
+            // 2. Anomaly Detection (SaaS Upgrade)
+            const isAnomaly = await this.anomalyService.checkAnomaly(from, nominal);
+            if (isAnomaly) {
+                setState(from, 'await_anomaly_confirm', { deskripsi, nominal, tipe, namaUser });
+                return msg.reply(`⚠️ *Transaksi Terdeteksi Cukup Besar (Anomaly!)*\nNominal Rp ${nominal.toLocaleString('id-ID')} jauh dari rata-rata kamu.\n\nApakah ini benar?\n1. Ya, Benar\n2. Tidak, Batalkan`);
             }
 
             return await this.processValidatedInput(msg, from, deskripsi, nominal, tipe, namaUser);
@@ -38,6 +47,14 @@ class TransactionController {
             }
             throw err;
         }
+    }
+
+    async handleAnomalyConfirm(msg, from, text, cur) {
+        if (text === '1') {
+            return await this.processValidatedInput(msg, from, cur.data.deskripsi, cur.data.nominal, cur.data.tipe, cur.data.namaUser);
+        }
+        resetState(from);
+        return msg.reply('✅ Transaksi dibatalkan.');
     }
 
     async handleDuplicateConfirm(msg, from, text, cur) {

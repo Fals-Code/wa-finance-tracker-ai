@@ -14,6 +14,11 @@ const AILearningService = require('./services/aiLearningService');
 const StatsService = require('./services/statsService');
 const SemanticAIService = require('./services/semanticAIService');
 const PatternInsightService = require('./services/patternInsightService');
+const PredictionService = require('./services/predictionService');
+const CoachService = require('./services/coachService');
+const HealthScoreService = require('./services/healthScoreService');
+const AnomalyService = require('./services/anomalyService');
+const DashboardService = require('./services/dashboardService');
 
 // 1. Config Layer
 const env = require('./config/env');
@@ -58,6 +63,11 @@ const aiLearningService = new AILearningService(repositories, logger);
 const statsService = new StatsService(dbService, logger);
 const semanticAI = new SemanticAIService(dbService, logger);
 const patternInsight = new PatternInsightService(dbService, logger);
+const predictionService = new PredictionService(dbService, logger);
+const coachService = new CoachService(dbService, logger);
+const healthScoreService = new HealthScoreService(dbService, logger);
+const anomalyService = new AnomalyService(dbService, logger);
+const dashboardService = new DashboardService(dbService, logger);
 
 const services = {
     db: dbService,
@@ -72,7 +82,12 @@ const services = {
     aiLearning: aiLearningService,
     stats: statsService,
     semanticAI: semanticAI,
-    patternInsight: patternInsight
+    patternInsight: patternInsight,
+    prediction: predictionService,
+    coach: coachService,
+    health: healthScoreService,
+    anomaly: anomalyService,
+    dashboard: dashboardService
 };
 
 // 5. Controllers

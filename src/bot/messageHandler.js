@@ -18,10 +18,13 @@ class MessageHandler {
         
         this.db = services.db;
         this.ai = services.ai;
-        this.reportService = services.report;      // Added
-        this.insightService = services.insight;    // Added
-        this.statsService = services.stats;        // Added
-        this.patternService = services.patternInsight; // Added
+        this.reportService = services.report;
+        this.insightService = services.insight;
+        this.statsService = services.stats;
+        this.patternService = services.patternInsight;
+        this.coachService = services.coach;      // Added
+        this.healthService = services.health;    // Added
+        this.predictionService = services.prediction; // Added
         this.logger = logger;
     }
 
@@ -146,6 +149,9 @@ class MessageHandler {
             case 'await_duplicate_confirm':
                 return await this.transaction.handleDuplicateConfirm(msg, from, text, cur);
 
+            case 'await_anomaly_confirm':
+                return await this.transaction.handleAnomalyConfirm(msg, from, text, cur);
+
             case 'await_budget':
                 return await this.budget.handleSetBudget(msg, from, text);
 
@@ -176,12 +182,22 @@ class MessageHandler {
         // New Assistant Commands
         if (lower === '/hariini') return msg.reply(await this.reportService.getDailyReport(from));
         if (lower === '/minggu') return msg.reply(await this.reportService.getWeeklyReport(from));
-        if (lower === '/bulan') return msg.reply(await this.reportService.getMonthlyReport(from));
+        if (lower === '/bulan' || lower === '/ringkasan') return msg.reply(await this.reportService.getMonthlyReport(from));
         if (lower === '/insight') return msg.reply(await this.insightService.getMonthlyInsight(from));
-        if (lower === '/stats') return msg.reply(await this.statsService.getStats(from));
+        if (lower === '/stats') {
+            const stats = await this.statsService.getStats(from);
+            const health = await this.healthService.calculateScore(from);
+            return msg.reply(`${stats}\n❤️ *Health Score:* ${health.score}/100 - ${health.label}`);
+        }
+        if (lower === '/coach') return msg.reply(await this.coachService.getAdvice(from));
         if (lower === '/pola') {
             const pattern = await this.patternService.getAnomalies(from);
-            return msg.reply(pattern || '✅ Belum ada pola aneh terdeteksi.');
+            const predictions = await this.predictionService.predictPatterns(from);
+            let response = pattern || '✅ Pola pengeluaran masih stabil.';
+            if (predictions) {
+                response += `\n\n🔮 *Prediksi Kebiasaan:*\n` + predictions.join('\n');
+            }
+            return msg.reply(response);
         }
 
         // Budget Setting Command: set budget [kategori] [nominal]
