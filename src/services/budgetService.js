@@ -14,8 +14,13 @@ class BudgetService {
 
     async setBudget(waNumber, nominal) {
         const bulan = this.getBulanKey();
-        this.logger.info({ waNumber, bulan, nominal }, 'Setting budget');
+        this.logger.info({ waNumber, bulan, nominal }, 'Setting global budget');
         await this.db.setBudget(waNumber, bulan, nominal);
+    }
+
+    async setCategoryBudget(waNumber, kategori, nominal) {
+        this.logger.info({ waNumber, kategori, nominal }, 'Setting category budget');
+        await this.db.setCategoryBudget(waNumber, kategori, nominal);
     }
 
     async getBudget(waNumber) {
@@ -23,22 +28,41 @@ class BudgetService {
         return await this.db.getBudget(waNumber, bulan);
     }
 
-    async checkBudgetAlert(waNumber) {
-        const budget = await this.getBudget(waNumber);
-        if (!budget) return null;
+    async checkBudgetAlert(waNumber, kategori = null) {
+        let alerts = [];
 
-        const now = new Date();
-        const dari = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-        const total = await this.db.getTotalKeluar(waNumber, dari);
-        
-        const pct = Math.round((total / budget) * 100);
-        this.logger.debug({ waNumber, pct, total, budget }, 'Budget checking');
+        // 1. Check Global Budget
+        const globalBudget = await this.getBudget(waNumber);
+        if (globalBudget) {
+            const now = new Date();
+            const dari = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+            const total = await this.db.getTotalKeluar(waNumber, dari);
+            const pct = Math.round((total / globalBudget) * 100);
+            
+            if (pct >= 100) alerts.push(`🚨 *BUDGET BULANAN HABIS!* (Rp ${total.toLocaleString('id-ID')} / Rp ${globalBudget.toLocaleString('id-ID')})`);
+            else if (pct >= 90) alerts.push(`⚠️ *Budget Bulanan hampir habis!* ${pct}% terpakai.`);
+        }
 
-        if (pct >= 100) return `🚨 *BUDGET HABIS!*\nPengeluaran Rp ${total.toLocaleString('id-ID')} dari budget Rp ${budget.toLocaleString('id-ID')} (${pct}%)`;
-        if (pct >= 90) return `⚠️ *Budget hampir habis!* ${pct}% terpakai\nSisa: Rp ${(budget - total).toLocaleString('id-ID')}`;
-        if (pct >= 75) return `📊 Budget ${pct}% terpakai. Sisa: Rp ${(budget - total).toLocaleString('id-ID')}`;
+        // 2. Check Category Budget (specific to the transaction)
+        if (kategori) {
+            const catBudgets = await this.db.getCategoryBudgets(waNumber);
+            const target = catBudgets.find(b => b.kategori.toLowerCase() === kategori.toLowerCase());
+            
+            if (target) {
+                const now = new Date();
+                const dari = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+                const txs = await this.db.getTransactions(waNumber, dari);
+                const totalKat = txs
+                    .filter(t => t.tipe !== 'masuk' && t.kategori.toLowerCase() === kategori.toLowerCase())
+                    .reduce((s, t) => s + parseInt(t.nominal || 0), 0);
+                
+                const pctKat = Math.round((totalKat / target.limit_amount) * 100);
+                if (pctKat >= 100) alerts.push(`🚨 *BUDGET ${kategori.toUpperCase()} TERLAMPAUI!* (Rp ${totalKat.toLocaleString('id-ID')} / Rp ${target.limit_amount.toLocaleString('id-ID')})`);
+                else if (pctKat >= 90) alerts.push(`⚠️ *Budget ${kategori} hampir habis!* ${pctKat}% terpakai.`);
+            }
+        }
         
-        return null;
+        return alerts.length > 0 ? alerts.join('\n\n') : null;
     }
 }
 

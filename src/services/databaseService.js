@@ -70,6 +70,14 @@ class DatabaseService {
         await this.budgetRepo.upsert({ wa_number: waNumber, bulan: bulanKey, budget: nominal });
     }
 
+    async setCategoryBudget(waNumber, kategori, nominal) {
+        await this.budgetRepo.upsertCategoryBudget({ wa_number: waNumber, kategori, limit_amount: nominal });
+    }
+
+    async getCategoryBudgets(waNumber) {
+        return await this.budgetRepo.getCategoryBudgets(waNumber);
+    }
+
     async getTotalKeluar(waNumber, dariTanggal) {
         const data = await this.trxRepo.getByWaNumber(waNumber, { tipe: 'keluar', dariTanggal });
         return data.reduce((s, r) => s + parseInt(r.nominal || 0), 0);

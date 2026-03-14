@@ -8,6 +8,12 @@ const { register, metrics } = require('./utils/metrics');
 const logger = require('./utils/logger');
 const { createBotClient } = require('./bot/client');
 const MessageHandler = require('./bot/messageHandler');
+const ReportService = require('./services/reportService');
+const InsightService = require('./services/insightService');
+const AILearningService = require('./services/aiLearningService');
+const StatsService = require('./services/statsService');
+const SemanticAIService = require('./services/semanticAIService');
+const PatternInsightService = require('./services/patternInsightService');
 
 // 1. Config Layer
 const env = require('./config/env');
@@ -46,6 +52,13 @@ const ocrService = new OCRService(logger);
 const categoryService = new CategoryService(dbService, logger);
 const exportService = new ExportService(supabase, logger); // Export still uses direct client for simple queries/python
 
+const reportService = new ReportService(dbService, logger);
+const insightService = new InsightService(dbService, logger);
+const aiLearningService = new AILearningService(repositories, logger);
+const statsService = new StatsService(dbService, logger);
+const semanticAI = new SemanticAIService(dbService, logger);
+const patternInsight = new PatternInsightService(dbService, logger);
+
 const services = {
     db: dbService,
     budget: budgetService,
@@ -53,7 +66,13 @@ const services = {
     ai: aiService,
     ocr: ocrService,
     category: categoryService,
-    export: exportService
+    export: exportService,
+    report: reportService,
+    insight: insightService,
+    aiLearning: aiLearningService,
+    stats: statsService,
+    semanticAI: semanticAI,
+    patternInsight: patternInsight
 };
 
 // 5. Controllers

@@ -1,13 +1,17 @@
 const TransactionValidator = require('../validators/transactionValidator');
 const transactionParser = require('../utils/transactionParser');
+const merchantParser = require('../utils/merchantParser');
 const MSG = require('../constants/messages');
-const { setState, resetState } = require('../utils/stateManager');
+const { getState, setState, resetState } = require('../utils/stateManager');
 const ValidationError = require('../errors/ValidationError');
 
 class TransactionController {
     constructor(services, logger) {
         this.transactionService = services.transaction;
         this.aiService = services.ai;
+        this.budgetService = services.budget;
+        this.aiLearning = services.aiLearning;
+        this.semanticAI = services.semanticAI; // For semantic grouping
         this.logger = logger;
     }
 
@@ -15,23 +19,59 @@ class TransactionController {
         try {
             const parsed = transactionParser.parse(text);
             if (!parsed || parsed.nominal === 0) {
-                throw new ValidationError('Format salah. Contoh: *Kopi 20k* atau *Bensin 30rb*');
+                throw new ValidationError('Format salah. Contoh: *Kopi Starbucks 50k*');
             }
             
             const { deskripsi, nominal, tipe } = parsed;
             
-            this.logger.info({ from, deskripsi, nominal, tipe }, 'Processing manual transaction input via parser');
-            // We still get AI analysis but using deskripsi now
-            const ai = await this.aiService.getAnalysis(deskripsi, deskripsi);
-            
-            setState(from, 'await_judul', { toko: deskripsi, nominal, ai, tipe, sumber: 'WA Bot', namaUser });
-            return msg.reply(MSG.askJudul(deskripsi, nominal));
+            // Duplicate Detection
+            const isDup = await this.transactionService.isDuplicate(from, nominal, deskripsi);
+            if (isDup) {
+                setState(from, 'await_duplicate_confirm', { deskripsi, nominal, tipe, namaUser });
+                return msg.reply(`⚠️ *Transaksi yang sama terdeteksi.*\nApakah ini transaksi baru atau duplikat?\n\n1. Simpan\n2. Abaikan (Duplikat)`);
+            }
+
+            return await this.processValidatedInput(msg, from, deskripsi, nominal, tipe, namaUser);
         } catch (err) {
             if (err instanceof ValidationError) {
                 return msg.reply(`❌ ${err.message}`);
             }
             throw err;
         }
+    }
+
+    async handleDuplicateConfirm(msg, from, text, cur) {
+        if (text === '1') {
+            return await this.processValidatedInput(msg, from, cur.data.deskripsi, cur.data.nominal, cur.data.tipe, cur.data.namaUser);
+        }
+        resetState(from);
+        return msg.reply('✅ Transaksi diabaikan.');
+    }
+
+    async processValidatedInput(msg, from, deskripsi, nominal, tipe, namaUser) {
+        this.logger.info({ from, deskripsi, nominal, tipe }, 'Processing valid transaction input');
+        
+        // 1. Merchant Detection
+        const detectedMerchant = merchantParser.detect(deskripsi);
+        const cleanDeskripsi = detectedMerchant ? deskripsi.replace(new RegExp(detectedMerchant, 'gi'), '').trim() : deskripsi;
+        
+        // 2. AI Analysis (Semantic Grouping First)
+        let ai = await this.semanticAI.findSemanticMatch(deskripsi);
+        if (!ai) {
+            ai = await this.aiService.getAnalysis(deskripsi, detectedMerchant || deskripsi);
+        }
+        
+        setState(from, 'await_judul', { 
+            toko: detectedMerchant || deskripsi, 
+            judul: cleanDeskripsi || deskripsi,
+            nominal, 
+            ai, 
+            tipe, 
+            sumber: 'WA Bot', 
+            namaUser 
+        });
+        
+        return msg.reply(MSG.askJudul(detectedMerchant || deskripsi, nominal));
     }
 
     async handleJudul(msg, from, text, cur) {
@@ -106,7 +146,9 @@ class TransactionController {
         
         this.logger.info({ from, toko: cur.data.toko, category: sel }, 'AI Feedback received');
         const learned = { ...cur.data, ai: { ...cur.data.ai, kategori: sel, status: '🧠 Learned' } };
-        await this.aiService.saveFeedback(from, cur.data.toko, sel, 'Uncategorized');
+        
+        // Use the new AI Learning service
+        await this.aiLearning.learnKeyword(from, cur.data.toko, sel, 'Uncategorized');
         
         setState(from, 'await_confirm', learned);
         return msg.reply(MSG.confirm(learned));

@@ -18,6 +18,10 @@ class MessageHandler {
         
         this.db = services.db;
         this.ai = services.ai;
+        this.reportService = services.report;      // Added
+        this.insightService = services.insight;    // Added
+        this.statsService = services.stats;        // Added
+        this.patternService = services.patternInsight; // Added
         this.logger = logger;
     }
 
@@ -139,6 +143,9 @@ class MessageHandler {
             case 'await_ai_learning':
                 return await this.transaction.handleAILearning(msg, from, text, cur);
 
+            case 'await_duplicate_confirm':
+                return await this.transaction.handleDuplicateConfirm(msg, from, text, cur);
+
             case 'await_budget':
                 return await this.budget.handleSetBudget(msg, from, text);
 
@@ -158,13 +165,35 @@ class MessageHandler {
     async routeByCommand(msg, from, text, lower, namaUser) {
         this.logger.debug({ from, command: lower }, 'Routing by command');
         
-        if (['laporan', 'report'].includes(lower)) return await this.report.showLaporan(msg, from);
-        if (['saldo', 'balance'].includes(lower)) return await this.report.showSaldo(msg, from);
-        if (['riwayat', 'history'].includes(lower)) return await this.report.showRiwayat(msg, from);
+        if (['laporan', 'report'].includes(lower)) return await this.transaction.showLaporan(msg, from);
+        if (['saldo', 'balance'].includes(lower)) return await this.transaction.showSaldo(msg, from);
+        if (['riwayat', 'history'].includes(lower)) return await this.transaction.showRiwayat(msg, from);
         if (['help', 'bantuan'].includes(lower)) return msg.reply(MSG.help());
         if (['budget'].includes(lower)) return await this.budget.showMenu(msg, from);
         if (['kategori'].includes(lower)) return await this.category.showMenu(msg, from);
         if (['export'].includes(lower)) return await this.routeExport(msg, from);
+        
+        // New Assistant Commands
+        if (lower === '/hariini') return msg.reply(await this.reportService.getDailyReport(from));
+        if (lower === '/minggu') return msg.reply(await this.reportService.getWeeklyReport(from));
+        if (lower === '/bulan') return msg.reply(await this.reportService.getMonthlyReport(from));
+        if (lower === '/insight') return msg.reply(await this.insightService.getMonthlyInsight(from));
+        if (lower === '/stats') return msg.reply(await this.statsService.getStats(from));
+        if (lower === '/pola') {
+            const pattern = await this.patternService.getAnomalies(from);
+            return msg.reply(pattern || '✅ Belum ada pola aneh terdeteksi.');
+        }
+
+        // Budget Setting Command: set budget [kategori] [nominal]
+        const budgetMatch = text.match(/^set budget\s+(.+?)\s+([\d.,]+[kmbrt]*)$/i);
+        if (budgetMatch) {
+            const kategori = budgetMatch[1];
+            const parsed = require('../utils/transactionParser').parse(`temp ${budgetMatch[2]}`);
+            if (parsed && parsed.nominal > 0) {
+                await this.budget.db.budgetService.setCategoryBudget(from, kategori, parsed.nominal);
+                return msg.reply(`✅ Budget *${kategori}* diset ke *Rp ${parsed.nominal.toLocaleString('id-ID')}*`);
+            }
+        }
         
         // Quick Input Detection
         // This is where we also apply validation soon if we move it to controller

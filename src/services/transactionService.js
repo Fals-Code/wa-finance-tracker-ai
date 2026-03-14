@@ -12,9 +12,30 @@ class TransactionService {
     async saveTransaction(waNumber, namaUser, data) {
         TransactionValidator.validateConfirmation(data);
         this.logger.info({ event: 'transaction_saving', user: waNumber, judul: data.judul }, 'Executing save transaction flow');
+        
         await this.db.saveTransaction(waNumber, namaUser, data);
         metrics.transactionCounter.inc({ type: data.tipe || 'keluar', category: data.ai?.kategori || 'Unknown' });
-        return await this.budgetService.checkBudgetAlert(waNumber);
+        
+        return await this.budgetService.checkBudgetAlert(waNumber, data.ai?.kategori);
+    }
+
+    async isDuplicate(waNumber, nominal, deskripsi) {
+        this.logger.debug({ waNumber, nominal, deskripsi }, 'Checking for duplicate transaction');
+        const now = new Date();
+        const thirtySecondsAgo = new Date(now.getTime() - 30 * 1000).toISOString();
+        
+        const recent = await this.db.getTransactions(waNumber, thirtySecondsAgo);
+        
+        const dup = recent.find(r => 
+            parseInt(r.nominal) === parseInt(nominal) && 
+            (r.judul === deskripsi || r.nama_toko === deskripsi)
+        );
+
+        if (dup) {
+            this.logger.warn({ waNumber, nominal, deskripsi }, 'Duplicate transaction detected');
+            return true;
+        }
+        return false;
     }
 
     async getLaporan(waNumber) {

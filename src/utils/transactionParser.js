@@ -24,22 +24,43 @@ class TransactionParser {
         }
 
         // 2. Extract and Normalize Nominal
-        // regex for numbers followed by k or rb, or just numbers with separators
-        // Matches: 20k, 20.000, 20000, 20rb, rp 20.000, rp20k
-        const nominalRegex = /(?:rp\s*)?([\d.,]+)\s*(k|rb|ribu|juta)?(?:\s|$)/i;
+        // Matches: 20k, 20.000, 20rb, 5jt, 1.5jt, 2m, 2mio, 20ribu
+        const nominalRegex = /(?:rp\s*)?([\d.,]+)\s*(k|rb|ribu|jt|juta|m|mio)?(?:\s|$)/i;
         const match = text.match(nominalRegex);
         
         let nominal = 0;
         let deskripsi = rawText.trim();
 
         if (match) {
-            let rawNum = match[1].replace(/[.,]/g, '');
-            let value = parseInt(rawNum);
+            let numStr = match[1];
             let suffix = (match[2] || '').toLowerCase();
+            
+            // Smarter separator handling
+            const dotCount = (numStr.match(/\./g) || []).length;
+            const commaCount = (numStr.match(/,/g) || []).length;
+
+            let value = 0;
+            if (dotCount + commaCount > 1) {
+                // Multiple separators = always thousand separators
+                value = parseFloat(numStr.replace(/[.,]/g, ''));
+            } else if (dotCount + commaCount === 1) {
+                const separator = numStr.includes('.') ? '.' : ',';
+                const parts = numStr.split(separator);
+                
+                // If suffix exists OR (no suffix and not 3 digits after separator) -> it's a decimal
+                if (suffix || parts[1].length !== 3) {
+                    value = parseFloat(numStr.replace(',', '.'));
+                } else {
+                    // No suffix and 3 digits -> thousand separator
+                    value = parseFloat(numStr.replace(/[.,]/g, ''));
+                }
+            } else {
+                value = parseFloat(numStr);
+            }
 
             if (suffix === 'k' || suffix === 'rb' || suffix === 'ribu') {
                 value *= 1000;
-            } else if (suffix === 'juta') {
+            } else if (suffix === 'jt' || suffix === 'juta' || suffix === 'm' || suffix === 'mio') {
                 value *= 1000000;
             }
 
