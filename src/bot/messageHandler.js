@@ -265,6 +265,38 @@ class MessageHandler {
             case 'await_confirm':
                 return await this.transaction.handleConfirm(msg, from, text, cur, namaUser);
 
+            // ── AWAIT SAVED ACTION ────────────────────────────────────
+            // State khusus setelah transaksi tersimpan.
+            // Mencegah angka 1-4 di pesan "Selanjutnya:" diinterpretasikan
+            // sebagai pilihan menu utama (misal: 4 → riwayat transaksi).
+            case 'await_saved_action':
+                switch (lower) {
+                    case '1': case 'catat': case 'catat lagi':
+                        setState(from, 'await_tipe', {});
+                        return msg.reply(MSG.chooseTipe());
+                    case '2': case 'laporan':
+                        resetState(from);
+                        await msg.reply('📊 _Mengambil laporan bulan ini..._');
+                        return msg.reply(await this.reportService.getMonthlyReport(from).catch(e => '❌ ' + e.message));
+                    case '3': case 'saldo':
+                        resetState(from);
+                        await msg.reply('💰 _Menghitung saldo..._');
+                        return await this.report.showSaldo(msg, from);
+                    case '4': case 'menu': case 'kembali':
+                        resetState(from);
+                        setState(from, 'menu', {});
+                        return msg.reply(MSG.menu(from));
+                    default:
+                        // Coba quick input transaksi baru
+                        if (text.match(/^(.+?)\s+([\d.,]+[kmbrtjuta]*)$/i)) {
+                            return await this.transaction.handleManualInput(msg, from, text, { data: {} }, namaUser);
+                        }
+                        // Fallback ke menu
+                        resetState(from);
+                        setState(from, 'menu', {});
+                        return msg.reply(MSG.menu(from));
+                }
+
             // ── AWAIT NOMINAL EDIT ───────────────────────────────────
             case 'await_nominal_edit':
                 return await this.transaction.handleNominalEdit(msg, from, text, cur);
