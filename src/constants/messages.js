@@ -3,26 +3,29 @@
  */
 const MSG = {
     welcome: (nama, from) =>
-        `👋 Halo *${nama}*! Selamat datang di *Finance Tracker Bot* 🤖\n\n` +
-        `Catat semua transaksi kamu dengan mudah!\n\n` +
-        MSG._menuList(from),
+        `👋 Halo *${nama}*! Selamat datang di *Finance Assistant* 🤖\n\n` +
+        `Asisten pribadi untuk mengelola keuangan kamu langsung dari WhatsApp.\n\n` +
+        MSG.menu(from),
 
-    menu: (from) => `📋 *MENU UTAMA*\n━━━━━━━━━━━━━━━━━\n` + MSG._menuList(from),
-
-    _menuList: (from) =>
+    menu: (from) => 
+        `📊 *FINANCE ASSISTANT*\n` +
+        `━━━━━━━━━━━━━━━━━\n` +
         `1️⃣  Catat Transaksi\n` +
-        `2️⃣  Laporan Bulanan\n` +
+        `2️⃣  Laporan Bulan Ini\n` +
         `3️⃣  Saldo & Ringkasan\n` +
         `4️⃣  Riwayat Transaksi\n` +
         `5️⃣  Atur Budget\n` +
         `6️⃣  Kategori Custom\n` +
-        `7️⃣  Export Data (CSV)\n` +
+        `7️⃣  Export Data\n` +
         `8️⃣  Bantuan\n` +
-        `9️⃣  Edit / Hapus Transaksi\n` +
-        `🔟  Pengaturan Notif Otomatis\n` +
         `━━━━━━━━━━━━━━━━━\n` +
-        `_Balas angka 1-10 atau ketik perintah_\n\n` +
-        `💻 *Akses Web:* https://wa-finance-tracker-dashboard.vercel.app/?id=${from}`,
+        `_Balas angka 1-8_\n\n` +
+        `atau langsung kirim transaksi seperti:\n` +
+        `_kopi 20k_\n` +
+        `_bensin 50rb_\n` +
+        `_gaji 5jt_\n\n` +
+        `🌐 *Dashboard Web:*\n` +
+        `https://wa-finance-tracker-dashboard.vercel.app/?id=${from}`,
 
     chooseTipe: () =>
         `💳 *Catat Transaksi*\n━━━━━━━━━━━━━━━━━\n` +
@@ -32,13 +35,14 @@ const MSG = {
         `_Balas 1 atau 2 | ketik *batal* untuk kembali_`,
 
     chooseMethod: (tipe) =>
-        `${tipe === 'masuk' ? '💰' : '💸'} *${tipe === 'masuk' ? 'Catat Pemasukan' : 'Catat Pengeluaran'}*\n━━━━━━━━━━━━━━━━━\n` +
-        `Input lewat mana?\n\n` +
-        `📝 *1. Teks Manual*\n` +
-        `   Format: \`Nama Toko Nominal\`\n\n` +
-        `📸 *2. Foto Struk / Bukti Transfer*\n` +
-        `   Kirim foto, bot baca otomatis\n\n` +
-        `_Balas 1 atau 2 | ketik *batal* untuk kembali_`,
+        `✏️ *Catat Transaksi*\n` +
+        `━━━━━━━━━━━━━━━━━\n` +
+        `Kirim transaksi seperti:\n` +
+        `_kopi 20k_\n` +
+        `_bensin 50rb_\n` +
+        `_gaji 5jt_\n\n` +
+        `Atau kirim *foto struk / bukti transfer*.\n\n` +
+        `_ketik *batal* untuk kembali_`,
 
     askTujuanTransfer: (namaPenerima, bankPengirim, nominal) => {
         let msg = `🏦 *Terdeteksi: Bukti Transfer Bank*\n━━━━━━━━━━━━━━━━━\n`;
@@ -81,16 +85,49 @@ const MSG = {
         return msg;
     },
 
-    saved: (d, alert) => {
-        let msg = `✅ *Transaksi Tersimpan!*\n━━━━━━━━━━━━━━━━━\n`;
-        msg += `${d.tipe === 'masuk' ? '💰' : '💸'} ${d.tipe === 'masuk' ? 'Pemasukan' : 'Pengeluaran'}\n`;
-        msg += `📌 ${d.judul}\n`;
-        msg += `💵 Rp ${parseInt(d.nominal).toLocaleString('id-ID')}\n`;
-        msg += `🏷️ ${d.ai.kategori}\n\n`;
+    saved: (d, saldo, alert, from) => {
+        let msg = `📌 *Transaksi Berhasil Disimpan*\n━━━━━━━━━━━━━━━━━\n`;
+        msg += `📝 *Deskripsi* : ${d.judul}\n`;
+        msg += `💰 *Nominal*   : Rp ${parseInt(d.nominal).toLocaleString('id-ID')}\n`;
+        msg += `🏷️ *Kategori*  : ${d.ai.kategori}\n\n`;
+        if (saldo !== undefined) msg += `📊 *Saldo sekarang* : Rp ${parseInt(saldo).toLocaleString('id-ID')}\n\n`;
         if (alert) msg += `${alert}\n\n`;
-        msg += `Ketik *menu* untuk lanjut`;
+        
+        msg += `*What's next?*\n\n`;
+        msg += `1️⃣ Catat transaksi lagi\n`;
+        msg += `2️⃣ Laporan hari ini\n`;
+        msg += `3️⃣ Lihat saldo\n`;
+        msg += `4️⃣ Buka dashboard\n\n`;
+        msg += `🌐 ${MSG.dashboardLink(from)}`;
         return msg;
     },
+
+    fallback: () => 
+        `❓ *Aku belum mengerti pesan itu.*\n\n` +
+        `Coba salah satu:\n` +
+        `1️⃣ Catat transaksi\n` +
+        `2️⃣ Lihat laporan\n` +
+        `3️⃣ Lihat saldo\n` +
+        `4️⃣ Buka dashboard\n\n` +
+        `atau kirim transaksi seperti:\n` +
+        `_kopi 20k_\n` +
+        `_bensin 50rb_\n` +
+        `_gaji 5jt_`,
+
+    dashboard: (from) => 
+        `📊 *Dashboard Keuangan*\n━━━━━━━━━━━━━━━━━\n` +
+        `Lihat analisis lengkap di web:\n\n` +
+        MSG.dashboardLink(from),
+
+    dashboardLink: (from) => {
+        const waNumber = from.split('@')[0];
+        return `https://wa-finance-tracker-dashboard.vercel.app/?id=${waNumber}`;
+    },
+
+    otpMessage: (code) =>
+        `🔐 *Kode login dashboard kamu*\n\n` +
+        `*${code}*\n\n` +
+        ` Kode ini berlaku 5 menit`,
 
     cancelled: () => `❌ *Dibatalkan.*\n\nKetik *menu* untuk kembali.`,
 

@@ -131,6 +131,16 @@ class TransactionService {
         return msg;
     }
 
+    async getBalance(waNumber) {
+        const now = new Date();
+        const dari = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+        const data = await this.db.getTransactions(waNumber, dari);
+        
+        const totalKeluar = (data || []).filter(r => r.tipe !== 'masuk').reduce((s, r) => s + parseInt(r.nominal || 0), 0);
+        const totalMasuk = (data || []).filter(r => r.tipe === 'masuk').reduce((s, r) => s + parseInt(r.nominal || 0), 0);
+        return totalMasuk - totalKeluar;
+    }
+
     async getRiwayat(waNumber, limit = 10) {
         const data = await this.db.getHistory(waNumber, limit);
         if (!data || data.length === 0) return `📭 Belum ada transaksi.`;
@@ -145,6 +155,19 @@ class TransactionService {
         }
         msg += `\nKetik *menu* untuk kembali`;
         return msg;
+    }
+
+    async getCategoryInsight(waNumber, kategori) {
+        if (!kategori) return null;
+        
+        const today = new Date().toISOString().split('T')[0];
+        const data = await this.db.getTransactions(waNumber, today);
+        
+        const todayKategori = data.filter(r => r.kategori === kategori && r.tipe !== 'masuk');
+        if (todayKategori.length <= 1) return null; // Only give insight if multiple transactions
+
+        const total = todayKategori.reduce((s, r) => s + parseInt(r.nominal || 0), 0);
+        return `Kamu sudah *${todayKategori.length} kali* membeli *${kategori.toLowerCase()}* hari ini. Total pengeluaran: *Rp ${total.toLocaleString('id-ID')}*`;
     }
 }
 

@@ -105,11 +105,18 @@ class TransactionController {
         const lower = text.toLowerCase();
         
         if (lower === '1') {
-            this.logger.info({ from }, 'Saving confirmed transaction');
+            this.logger.info({ from, event: 'transaction_saved' }, 'Saving confirmed transaction');
             try {
                 const alert = await this.transactionService.saveTransaction(from, namaUser, cur.data);
+                const saldo = await this.transactionService.getBalance(from);
+                const insight = await this.transactionService.getCategoryInsight(from, cur.data.ai?.kategori);
+                
                 resetState(from);
-                return msg.reply(MSG.saved(cur.data, alert));
+                
+                let feedback = MSG.saved(cur.data, saldo, alert, from);
+                if (insight) feedback += `\n\n💡 *Smart Insight:*\n${insight}`;
+                
+                return msg.reply(feedback);
             } catch (err) {
                 if (err instanceof ValidationError) {
                     return msg.reply(`❌ ${err.message}`);

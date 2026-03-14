@@ -91,7 +91,19 @@ BEGIN
 END;
 $$ language 'plpgsql';
 
+DROP TRIGGER IF EXISTS update_user_profile_modtime ON user_profiles;
 CREATE TRIGGER update_user_profile_modtime
     BEFORE UPDATE ON user_profiles
     FOR EACH ROW
     EXECUTE PROCEDURE update_modified_column();
+
+-- TABEL LOGIN CODES (OTP)
+CREATE TABLE IF NOT EXISTS login_codes (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    wa_number TEXT NOT NULL,
+    code TEXT NOT NULL,
+    expired_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_login_codes_wa ON login_codes(wa_number);
