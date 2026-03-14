@@ -217,18 +217,31 @@ const server = app.listen(port, () => {
 
 })
 
+const NotificationScheduler = require('./scheduler/notificationScheduler')
+const DailyReportJob = require('./jobs/dailyReportJob')
+const CleanupTempFilesJob = require('./jobs/cleanupTempFilesJob')
+
 /* ================================
    BOT EVENTS
 ================================ */
-
+ 
 client.on('ready', async () => {
+  logger.info({ event: 'bot_online' }, 'Bot is ONLINE ✅')
 
-  logger.info({ event: 'bot_online' }, 'Bot is ONLINE')
-
-  await aiService.loadDataset().catch(e => {
-    logger.error(e)
+  // Initialize jobs
+  const dailyReportJob = new DailyReportJob(client, supabase, logger)
+  const cleanupJob = new CleanupTempFilesJob(logger)
+  
+  // Initialize scheduler
+  const scheduler = new NotificationScheduler({
+    client,
+    logger,
+    jobs: { dailyReport: dailyReportJob, cleanup: cleanupJob }
   })
+  scheduler.init()
 
+  // Load AI dataset
+  await aiService.loadDataset().catch(e => logger.error(e))
 })
 
 client.on('message', async (msg) => {

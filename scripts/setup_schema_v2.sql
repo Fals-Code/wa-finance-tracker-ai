@@ -2,32 +2,48 @@
 -- Execute this in Supabase SQL Editor
 
 -- 1. Users / User Profiles
+-- 1. Users / User Profiles
 CREATE TABLE IF NOT EXISTS user_profiles (
     wa_number TEXT PRIMARY KEY,
     nama_user TEXT,
+    nama TEXT, -- Added for compatibility
     timezone TEXT DEFAULT 'Asia/Jakarta',
     currency TEXT DEFAULT 'IDR',
     plan TEXT DEFAULT 'free',
     subscription_status TEXT DEFAULT 'active',
+    authcode TEXT, -- Added for dashboard auth
+    authcode_requested BOOLEAN DEFAULT FALSE, -- Added
+    last_active TIMESTAMPTZ DEFAULT NOW(), -- Added
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 2. Transaksi (Refined)
+-- 2. Transaksi (Aligned with mature codebase)
 CREATE TABLE IF NOT EXISTS transaksi (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     wa_number TEXT REFERENCES user_profiles(wa_number),
     deskripsi TEXT,
-    nama_toko TEXT,
+    nama_toko TEXT, -- Legacy support
+    judul TEXT, -- Legacy support
+    nama_user TEXT, -- Legacy support
     nominal BIGINT NOT NULL,
     kategori TEXT DEFAULT 'Lain-lain',
     sub_kategori TEXT,
     tipe TEXT CHECK (tipe IN ('masuk', 'keluar')),
     confidence_ai INT DEFAULT 0,
+    status_validasi TEXT, -- Legacy support
     sumber_dokumen TEXT DEFAULT 'whatsapp',
+    catatan TEXT, -- Legacy support
     tanggal DATE DEFAULT CURRENT_DATE,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Ensure columns exist if table was already created by old V2 script
+ALTER TABLE transaksi ADD COLUMN IF NOT EXISTS nama_user TEXT;
+ALTER TABLE transaksi ADD COLUMN IF NOT EXISTS judul TEXT;
+ALTER TABLE transaksi ADD COLUMN IF NOT EXISTS nama_toko TEXT;
+ALTER TABLE transaksi ADD COLUMN IF NOT EXISTS catatan TEXT;
+ALTER TABLE transaksi ADD COLUMN IF NOT EXISTS status_validasi TEXT;
 
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_transaksi_wa_number ON transaksi(wa_number);
@@ -47,12 +63,25 @@ CREATE TABLE IF NOT EXISTS ai_keywords (
 -- 4. KNN Dataset (For similarity classification)
 CREATE TABLE IF NOT EXISTS knn_dataset (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    keyword TEXT,
+    nama_toko TEXT,
+    keyword_utama TEXT,
     kategori TEXT,
-    sub_kategori TEXT
+    sub_kategori TEXT,
+    sumber TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 5. Budget Tracker (Per-category limits)
+-- 5. Monthly Budgets (user_budgets)
+CREATE TABLE IF NOT EXISTS user_budgets (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  wa_number TEXT REFERENCES user_profiles(wa_number) ON DELETE CASCADE,
+  bulan TEXT NOT NULL,
+  budget BIGINT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(wa_number, bulan)
+);
+
+-- 6. Category Budgets (budget_tracker)
 CREATE TABLE IF NOT EXISTS budget_tracker (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     wa_number TEXT REFERENCES user_profiles(wa_number),
@@ -63,16 +92,17 @@ CREATE TABLE IF NOT EXISTS budget_tracker (
     UNIQUE(wa_number, kategori)
 );
 
--- 6. User Categories (Custom categories)
+-- 7. User Categories (Custom categories)
 CREATE TABLE IF NOT EXISTS user_categories (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     wa_number TEXT REFERENCES user_profiles(wa_number),
-    nama_kategori TEXT NOT NULL,
+    nama TEXT NOT NULL, -- Matched to code
+    emoji TEXT DEFAULT '🏷️',
     created_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(wa_number, nama_kategori)
+    UNIQUE(wa_number, nama)
 );
 
--- 7. Prediction Logs (AI pattern analysis results)
+-- 8. Prediction Logs (AI pattern analysis results)
 CREATE TABLE IF NOT EXISTS prediction_logs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     wa_number TEXT REFERENCES user_profiles(wa_number),

@@ -67,6 +67,26 @@ class MediaController {
                 return await msg.reply(MSG.askTujuanTransfer(preDetected.namaPenerima, preDetected.bankPengirim, nominal));
             }
 
+            if (preDetected?.isEcommerce || preDetected?.kategori === 'Belanja Online') {
+                this.logger.info({ from, platform: preDetected.toko }, 'Pre-detected E-Commerce');
+                const toko = preDetected.toko || tokoRaw;
+                const ai = {
+                    kategori: 'Belanja Online',
+                    sub: 'E-Commerce',
+                    confidence: preDetected.confidence,
+                    status: preDetected.status,
+                    matched: toko,
+                    method: 'PreDetect-Ecommerce',
+                };
+                
+                setState(from, 'await_judul', {
+                    toko, nominal, ai, sumber: 'Screenshot E-Commerce',
+                    catatan: `Order ${toko}`,
+                    tipe: 'keluar', namaUser
+                });
+                return await msg.reply(MSG.askJudul(toko, nominal));
+            }
+
             this.logger.info({ from, toko: preDetected?.toko || tokoRaw }, 'Analyzing with AI');
             const toko = (preDetected?.toko) || tokoRaw;
             const ai = preDetected

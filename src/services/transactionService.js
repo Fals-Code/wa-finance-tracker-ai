@@ -144,30 +144,32 @@ class TransactionService {
     async getRiwayat(waNumber, limit = 10) {
         const data = await this.db.getHistory(waNumber, limit);
         if (!data || data.length === 0) return `📭 Belum ada transaksi.`;
-
-        let msg = `🕐 *Riwayat ${limit} Transaksi Terakhir*\n━━━━━━━━━━━━━━━━━\n`;
-        for (const r of data) {
-            const tgl = new Date(r.tanggal).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
-            const icon = r.tipe === 'masuk' ? '💰' : '💸';
-            const label = r.judul || r.nama_toko || '-';
-            msg += `${icon} *${label}*\n`;
-            msg += `   ${tgl} | ${r.kategori} | Rp ${parseInt(r.nominal).toLocaleString('id-ID')}\n`;
-        }
-        msg += `\nKetik *menu* untuk kembali`;
+        
+        let msg = `📜 *RIWAYAT TRANSAKSI TERAKHIR*\n━━━━━━━━━━━━━━━━━━━━\n`;
+        data.forEach((r, i) => {
+            const icon = r.tipe === 'masuk' ? '➕' : '➖';
+            msg += `${i + 1}. [${r.tanggal}] ${icon} *${r.deskripsi || 'Tanpa Judul'}*\n   Rp ${parseInt(r.nominal).toLocaleString('id-ID')}\n`;
+        });
+        msg += `\n━━━━━━━━━━━━━━━━━━━━\nKetik *menu* untuk kembali.`;
         return msg;
     }
 
     async getCategoryInsight(waNumber, kategori) {
         if (!kategori) return null;
-        
         const today = new Date().toISOString().split('T')[0];
         const data = await this.db.getTransactions(waNumber, today);
         
-        const todayKategori = data.filter(r => r.kategori === kategori && r.tipe !== 'masuk');
-        if (todayKategori.length <= 1) return null; // Only give insight if multiple transactions
-
+        // Filter specifically for TODAY and this category
+        const todayKategori = (data || []).filter(r => 
+            r.kategori === kategori && 
+            r.tipe !== 'masuk' &&
+            r.tanggal === today
+        );
+        
+        if (todayKategori.length <= 1) return null;
+        
         const total = todayKategori.reduce((s, r) => s + parseInt(r.nominal || 0), 0);
-        return `Kamu sudah *${todayKategori.length} kali* membeli *${kategori.toLowerCase()}* hari ini. Total pengeluaran: *Rp ${total.toLocaleString('id-ID')}*`;
+        return `Kamu sudah *${todayKategori.length}x* transaksi *${kategori.toLowerCase()}* hari ini. Total: *Rp ${total.toLocaleString('id-ID')}*`;
     }
 }
 

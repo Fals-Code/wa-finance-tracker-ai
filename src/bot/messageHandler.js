@@ -119,10 +119,10 @@ class MessageHandler {
                         return msg.reply(await this.reportService.getMonthlyReport(from));
                     case '3':
                         await msg.reply('💰 Menghitung saldo...');
-                        return await this.transaction.showSaldo(msg, from);
+                        return await this.report.showSaldo(msg, from);
                     case '4':
                         await msg.reply('📜 Mengambil riwayat transaksi...');
-                        return await this.transaction.showRiwayat(msg, from);
+                        return await this.report.showRiwayat(msg, from);
                     case '5':
                         return await this.budget.showMenu(msg, from);
                     case '6':
@@ -200,8 +200,8 @@ class MessageHandler {
         if (lower.includes('laporan hari ini')) return msg.reply(await this.reportService.getDailyReport(from));
         if (lower.includes('laporan minggu')) return msg.reply(await this.reportService.getWeeklyReport(from));
         if (lower.includes('laporan bulan')) return msg.reply(await this.reportService.getMonthlyReport(from));
-        if (lower.includes('saldo')) return await this.transaction.showSaldo(msg, from);
-        if (lower.includes('riwayat transaksi')) return await this.transaction.showRiwayat(msg, from);
+        if (lower.includes('saldo')) return await this.report.showSaldo(msg, from);
+        if (lower.includes('riwayat transaksi')) return await this.report.showRiwayat(msg, from);
 
         // NUMERIC QUICK ACTIONS (Mapped to 1-4 suggestion list)
         if (lower === '1') {
@@ -214,7 +214,7 @@ class MessageHandler {
         }
         if (lower === '3') {
             await msg.reply('💰 Menghitung saldo...');
-            return await this.transaction.showSaldo(msg, from);
+            return await this.report.showSaldo(msg, from);
         }
         if (lower === '4') {
             return msg.reply(MSG.dashboard(from));

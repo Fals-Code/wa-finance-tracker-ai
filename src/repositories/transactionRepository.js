@@ -15,12 +15,16 @@ class TransactionRepository {
     }
 
     async getByWaNumber(waNumber, filters = {}) {
-        let query = this.supabase.from('transaksi').select('*').eq('wa_number', waNumber);
+        let query = this.supabase
+            .from('transaksi')
+            .select('*')
+            .eq('wa_number', waNumber);
         
         if (filters.tipe) query = query.eq('tipe', filters.tipe);
         if (filters.dariTanggal) query = query.gte('tanggal', filters.dariTanggal);
+        if (filters.limit) query = query.limit(filters.limit);
         
-        const { data, error } = await query.order('tanggal', { ascending: false });
+        const { data, error } = await query.order('created_at', { ascending: false });
         if (error) throw new DatabaseError(error.message, error);
         return data || [];
     }

@@ -50,7 +50,9 @@ class DatabaseService {
             wa_number: waNumber,
             nama_user: namaUser,
             tanggal: new Date().toISOString().split('T')[0],
-            deskripsi: judul || toko, // Use judul if provided, fallback to raw description
+            deskripsi: judul || toko, // schema v2 uses 'deskripsi'
+            nama_toko: toko, // Legacy support
+            judul: judul, // Legacy support
             nominal: nominal,
             kategori: ai.kategori,
             sub_kategori: ai.sub,
@@ -83,14 +85,12 @@ class DatabaseService {
         return data.reduce((s, r) => s + parseInt(r.nominal || 0), 0);
     }
 
-    async getTransactions(waNumber, dariTanggal) {
-        return await this.trxRepo.getByWaNumber(waNumber, { dariTanggal });
+    async getTransactions(waNumber = null, dariTanggal = null) {
+        return await this.trxRepo.getByWaNumber(waNumber, dariTanggal ? { dariTanggal } : {});
     }
 
     async getHistory(waNumber, limit = 10) {
-        // Repository getByWaNumber is generic, but we can add a limit filter if needed
-        const data = await this.trxRepo.getByWaNumber(waNumber);
-        return data.slice(0, limit);
+        return await this.trxRepo.getByWaNumber(waNumber, { limit });
     }
 
     async getTransactionDetail(waNumber, trxId) {

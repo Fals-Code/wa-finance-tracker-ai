@@ -10,11 +10,41 @@ const { extractTransferDetail } = require('./transferParser');
  * @returns {string|null}
  */
 function extractNamaToko(rawText) {
-    const lines = rawText.split('\n').map(l => l.trim()).filter(Boolean);
+    // ═══════════════════════════════════════════════
+    // PRE-DETECTION: E-Commerce platforms
+    // ═══════════════════════════════════════════════
+    const t = rawText.toLowerCase();
+    
+    // Shopee
+    if (t.includes('shopee') || t.includes('shopee mall') || 
+        t.includes('voucher shopee') || t.includes('biaya layanan') && t.includes('subtotal produk')) {
+        const tokoMatch = rawText.match(/(?:Toko|Store|Seller)[:\s]+([^\n]{3,40})/i) ||
+                          rawText.match(/(?:Mall\s*\|?\s*ORI|Official Store)\s*\n?\s*([^\n]{3,40})/i) ||
+                          rawText.match(/([A-Za-z0-9\s]{3,30}(?:Official Store|Store|Shop))/i);
+        if (tokoMatch) return tokoMatch[1].trim();
+        return 'Shopee';
+    }
+    if (t.includes('tokopedia') || t.includes('toped')) return 'Tokopedia';
+    if (t.includes('lazada')) return 'Lazada';
+    if (t.includes('tiktok') || t.includes('tik tok shop')) return 'TikTok Shop';
+    if (t.includes('blibli')) return 'Blibli';
+
+    // ═══════════════════════════════════════════════
+    // FILTER STATUS BAR HP & NAVIGATION
+    // ═══════════════════════════════════════════════
+    const lines = rawText.split('\n').map(l => l.trim()).filter(Boolean).filter(l => {
+        if (/^\d{1,2}[.:]\d{2}/.test(l)) return false; // Jam
+        if (/^[\d.:]+ ?[🔋📶🛜]/.test(l)) return false; // Icons
+        if (/^(safari|chrome|firefox|edge|browser)$/i.test(l)) return false; 
+        if (/^[‹›←→<>]\s*(safari|back|kembali)$/i.test(l)) return false;
+        if (/^[\d.:\s«»‹›←→<>]{1,8}$/.test(l)) return false;
+        return true;
+    });
 
     const blacklistPatterns = [
         /^\d+$/, /^https?/i, /[.]{3,}/, /^\*+$/, /^[-=_]+$/,
         /^(total|subtotal|grand total|jumlah|bayar|tunai|kembali|kembalian|diskon|ppn|pajak|tax|dpp|service charge)/i,
+        /^(rincian|pesanan|order|invoice|tagihan)/i,
         /^(no\.?\s*(struk|faktur|invoice|order|trx|ref|nota|bon|kasir|tanda terima))/i,
         /^(tanggal|tgl|date|waktu|time|jam|kasir|operator|cashier|served by)/i,
         /^(qty|pcs|satuan|unit|harga|price|jml|jumlah)/i,
@@ -26,12 +56,21 @@ function extractNamaToko(rawText) {
         /^(struk|nota|invoice|kwitansi|receipt|bon|faktur)/i,
         /^\?\(?\+?62[\d\s\-]+$/,
         /^0\d{8,}$/,
+        /^\d{1,2}[.:]\d{2}(\s|$)/,
+        /^(live|tonton|sekarang|sedang)/i,
+        /pengguna sedang/i,
+        /^(batalkan|hubungi|penjual|pusat bantuan)/i,
+        /^(back|kembali|lanjut|next|prev)/i,
+        /^butuh bantuan/i,
+        /^(ready stock|voucher|promo|diskon)/i,
+        /\[TOP \d+\]/i,
+        /rp[\d.,]+/i,
     ];
 
     const isBlacklisted = (line) => blacklistPatterns.some(p => p.test(line));
 
-    const candidates = lines.slice(0, 12).filter(l =>
-        l.length >= 2 && l.length <= 60 &&
+    const candidates = lines.slice(0, 15).filter(l =>
+        l.length >= 3 && l.length <= 60 &&
         /[a-zA-Z]/.test(l) &&
         !isBlacklisted(l)
     );
@@ -56,7 +95,32 @@ function extractNamaToko(rawText) {
  * @returns {number}
  */
 function extractNominal(rawText) {
-    const lines = rawText.split('\n').map(l => l.trim()).filter(Boolean);
+    // ═══════════════════════════════════════════════════════════
+    // PRIORITAS 0: E-COMMERCE TOTAL PATTERNS
+    // ═══════════════════════════════════════════════════════════
+    const ecommercePatterns = [
+        /total\s*pesanan\s*[:\s]*rp\.?\s*([\d.,]+)/i,
+        /total\s*pembayaran\s*[:\s]*rp\.?\s*([\d.,]+)/i,
+        /total\s*harga\s*[:\s]*rp\.?\s*([\d.,]+)/i,
+        /total\s*belanja\s*[:\s]*rp\.?\s*([\d.,]+)/i,
+        /(?:harga yang harus|yang harus) dibayar\s*[:\s]*rp\.?\s*([\d.,]+)/i,
+        /grand\s*total\s*[:\s]*rp\.?\s*([\d.,]+)/i,
+    ];
+
+    for (const pat of ecommercePatterns) {
+        const m = rawText.match(pat);
+        if (m && m[1]) {
+            const val = parseInt(m[1].replace(/\./g, '').replace(/,/g, ''));
+            if (val >= 1000 && val <= 500_000_000) return val;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // CLEANING: Harga Coret & Diskon
+    // ═══════════════════════════════════════════════════════════
+    const cleanedText = rawText
+        .replace(/rp\.?\s*[\d.,]+\s*rp\.?\s*([\d.,]+)/gi, 'Rp$1')
+        .replace(/[-]\s*rp\.?\s*[\d.,]+/gi, '');
 
     const totalPatterns = [
         /(?:total\s*(?:harga|bayar|tagihan|pembayaran|pembelian|penjualan|transaksi)?)\s*[:\-]?\s*rp\.?\s*([\d.,]+)/i,
@@ -72,6 +136,7 @@ function extractNominal(rawText) {
         /total[^\d]*([\d.,]{4,})/i,
     ];
 
+    const lines = cleanedText.split('\n').map(l => l.trim()).filter(Boolean);
     for (const pat of totalPatterns) {
         for (const line of lines) {
             const m = line.match(pat);
@@ -83,19 +148,21 @@ function extractNominal(rawText) {
         }
     }
 
-    const allNums = [...rawText.matchAll(/\b(\d[\d.,]{2,})\b/g)]
-        .map(m => parseInt(m[1].replace(/[.,]/g, '')))
-        .filter(n => !isNaN(n) && n >= 1000 && n <= 500_000_000);
-
-    if (allNums.length === 0) return 0;
-
-    const bottomLines = lines.slice(Math.floor(lines.length * 0.6));
+    const bottomLines = lines.slice(Math.floor(lines.length * 0.5));
     const bottomNums = [...bottomLines.join('\n').matchAll(/\b(\d[\d.,]{2,})\b/g)]
         .map(m => parseInt(m[1].replace(/[.,]/g, '')))
         .filter(n => !isNaN(n) && n >= 1000 && n <= 500_000_000);
 
-    if (bottomNums.length > 0) return Math.max(...bottomNums);
-    return Math.max(...allNums);
+    if (bottomNums.length > 0) {
+        // E-commerce tendency: last number is usually the final bill
+        return bottomNums[bottomNums.length - 1];
+    }
+
+    const allNums = [...cleanedText.matchAll(/\b(\d[\d.,]{2,})\b/g)]
+        .map(m => parseInt(m[1].replace(/[.,]/g, '')))
+        .filter(n => !isNaN(n) && n >= 1000 && n <= 500_000_000);
+    
+    return allNums.length > 0 ? Math.max(...allNums) : 0;
 }
 
 /**
@@ -107,8 +174,35 @@ function preDetectReceiptType(rawText) {
     if (!rawText) return null;
     const t = rawText.toLowerCase();
 
-    // Helper: extract shop name (used in some categories)
-    const getToko = () => extractNamaToko(rawText);
+    // ═══════════════════════════════════════════════════════════════
+    // PRIORITAS 0: DETEKSI STRUK E-COMMERCE SCREENSHOT
+    // ═══════════════════════════════════════════════════════════════
+    const isShopee = t.includes('shopee') || t.includes('voucher shopee') || t.includes('shopee mall') ||
+        (t.includes('subtotal produk') && t.includes('biaya layanan')) ||
+        (t.includes('proteksi produk') && t.includes('total pesanan')) ||
+        (t.includes('voucher toko digunakan') && t.includes('total pesanan')) ||
+        (t.includes('subtotal diskon pengiriman') && t.includes('subtotal pengiriman'));
+
+    if (isShopee) {
+        const tokoMatch = rawText.match(/(?:Toko|Store)\s*[:\|]\s*([^\n]{3,35})/i) ||
+                          rawText.match(/([A-Za-z0-9\s]{5,30}\s*(?:Official Store|Store|Shop|Mall))/i);
+        return {
+            toko: tokoMatch ? tokoMatch[1].trim() : 'Shopee',
+            kategori: 'Belanja Online', sub: 'E-Commerce', confidence: 97.0, status: '✅ Valid', isPreDetected: true, isEcommerce: true
+        };
+    }
+
+    if (t.includes('tokopedia') || t.includes('tokped') || (t.includes('total pembayaran') && t.includes('bebas ongkir'))) {
+        return { toko: 'Tokopedia', kategori: 'Belanja Online', sub: 'E-Commerce', confidence: 97.0, status: '✅ Valid', isPreDetected: true, isEcommerce: true };
+    }
+    if (t.includes('lazada') || t.includes('lazcoins') || t.includes('laz voucher')) {
+        return { toko: 'Lazada', kategori: 'Belanja Online', sub: 'E-Commerce', confidence: 97.0, status: '✅ Valid', isPreDetected: true, isEcommerce: true };
+    }
+    if (t.includes('tiktok shop') || t.includes('tiktokshop') || (t.includes('tiktok') && (t.includes('pesanan') || t.includes('order')))) {
+        return { toko: 'TikTok Shop', kategori: 'Belanja Online', sub: 'E-Commerce', confidence: 97.0, status: '✅ Valid', isPreDetected: true, isEcommerce: true };
+    }
+    if (t.includes('blibli')) return { toko: 'Blibli', kategori: 'Belanja Online', sub: 'E-Commerce', confidence: 97.0, status: '✅ Valid', isPreDetected: true, isEcommerce: true };
+    if (t.includes('bukalapak') || t.includes('bukabantuan')) return { toko: 'Bukalapak', kategori: 'Belanja Online', sub: 'E-Commerce', confidence: 97.0, status: '✅ Valid', isPreDetected: true, isEcommerce: true };
 
     // 1. BANK TRANSFER
     const isBCATransfer = (t.includes('biz id') || t.includes('bizid') || (t.includes('bi-fast') || t.includes('bifast')) || (t.includes('m-transfer') && t.includes('berhasil')) || (t.includes('transfer berhasil') && t.includes('bca')) || (t.includes('sumber dana') && t.includes('penerima')) || (t.includes('klikbca') && t.includes('transfer')) || (t.includes('mybca') && t.includes('transfer')) || (t.includes('detail transfer') && t.includes('nominal')) || (t.includes('metode transfer') && (t.includes('bi-fast') || t.includes('rtgs') || t.includes('online'))));
@@ -219,6 +313,11 @@ function isLikelyReceipt(rawText) {
         /saldo/i, /token/i, /kwh/i, /id pelanggan/i,
         /[\d.,]{4,}/,
         /order id/i, /pesanan/i, /pengiriman/i, /ongkos kirim/i,
+        // E-Commerce
+        /total\s*pesanan/i, /total\s*pembayaran/i, /subtotal\s*produk/i,
+        /voucher\s*shopee/i, /biaya\s*layanan/i, /proteksi\s*produk/i,
+        /bebas\s*ongkir/i, /rincian\s*pesanan/i, /diskon\s*pengiriman/i,
+        /voucher\s*toko/i,
     ];
 
     const matches = receiptKeywords.filter(pat => pat.test(rawText));
