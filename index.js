@@ -2596,15 +2596,16 @@ Kode Anda: *${newRow.authcode}*
 
           try {
 
-            await client.sendMessage(newRow.wa_number, msg);
-            console.log(`✅ Authcode terkirim ke ${newRow.wa_number}`);
-
+            // Reset flag dulu agar tidak double trigger jika ada update profiling di saat bersamaan
             await supabase
               .from("user_profiles")
               .update({
                 authcode_requested: false
               })
               .eq("wa_number", newRow.wa_number);
+
+            await client.sendMessage(newRow.wa_number, msg);
+            console.log(`✅ Authcode terkirim ke ${newRow.wa_number}`);
 
           } catch (err) {
 
