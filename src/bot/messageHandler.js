@@ -165,7 +165,7 @@ class MessageHandler {
 
                     // --- NOTIFIKASI ---
                     case '10': case 'notif': case 'notifikasi': case 'pengaturan notif': {
-                        const isActive = this.scheduler ? this.scheduler.checkNotif(from) : false;
+                        const isActive = this.scheduler && this.scheduler.checkNotif ? this.scheduler.checkNotif(from) : (this.scheduler && this.scheduler.isNotifActive ? this.scheduler.isNotifActive(from) : false);
                         return msg.reply(
                             `🔔 *Pengaturan Notifikasi*\n` +
                             `━━━━━━━━━━━━━━━━━\n` +
@@ -534,7 +534,7 @@ class MessageHandler {
             );
         }
         if (['notif', 'notifikasi'].includes(lower)) {
-            const isActive = this.scheduler ? this.scheduler.checkNotif(from) : false;
+            const isActive = this.scheduler && this.scheduler.checkNotif ? this.scheduler.checkNotif(from) : (this.scheduler && this.scheduler.isNotifActive ? this.scheduler.isNotifActive(from) : false);
             setState(from, 'menu', {});
             return msg.reply(
                 `🔔 *Pengaturan Notifikasi*\n━━━━━━━━━━━━━━━━━\n` +

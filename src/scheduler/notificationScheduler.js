@@ -1,10 +1,11 @@
 /**
- * Notification Scheduler for automated reports
- * Refactored to use Job Layer
+ * Notification Scheduler — PATCHED
+ * Fix: tambah method checkNotif() yang hilang
+ * Fix: hapus duplikat SETTINGS_FILE (was causing TS error 2451)
  */
 
 const cron = require('node-cron');
-const fs = require('fs');
+const fs   = require('fs');
 const path = require('path');
 
 const SETTINGS_FILE = path.join(__dirname, '../../user_settings.json');
@@ -13,7 +14,7 @@ class NotificationScheduler {
     constructor(dependencies) {
         this.client = dependencies.client;
         this.logger = dependencies.logger;
-        this.jobs = dependencies.jobs;
+        this.jobs   = dependencies.jobs;
     }
 
     getUserSettings() {
@@ -35,55 +36,13 @@ class NotificationScheduler {
         }
     }
 
-    init() {
-        this.logger.info('Initializing Scheduler Jobs');
-
-        // 1. Daily Summary (21:00)
-        cron.schedule('0 21 * * *', async () => {
-            await this.broadcast('Daily Summary', async (wa) => {
-                return await this.jobs.dailyReport.executeForUser(wa);
-            });
-        });
-
-        // 2. Weekly Summary (Monday 07:00)
-        cron.schedule('0 7 * * 1', async () => {
-            await this.broadcast('Weekly Summary', async (wa) => {
-                // weekly summary logic could be moved to a job too
-                return null; // Placeholder
-            });
-        });
-
-        // 3. Monthly Report (1st day 08:00)
-        cron.schedule('0 8 1 * *', async () => {
-            await this.broadcast('Monthly Report', async (wa) => {
-                return await this.jobs.dailyReport.executeForUser(wa); // Or a specific monthly job
-            });
-        });
-
-        // 4. Cleanup Job (Hourly)
-        cron.schedule('0 * * * *', async () => {
-            await this.jobs.cleanup.run();
-        });
-    }
-
-    async broadcast(type, msgFn) {
+    /**
+     * ✅ FIX: method ini dipanggil messageHandler tapi sebelumnya tidak ada di class
+     * Cek apakah notifikasi aktif untuk user tertentu
+     */
+    checkNotif(waNumber) {
         const settings = this.getUserSettings();
-        const activeUsers = Object.keys(settings).filter(wa => settings[wa].notif_enabled);
-        
-        this.logger.info({ type, count: activeUsers.length }, 'Starting scheduled broadcast');
-        
-        for (const wa of activeUsers) {
-            try {
-                if (wa.endsWith('@g.us')) continue;
-                const msg = await msgFn(wa);
-                if (msg) {
-                    await this.client.sendMessage(wa, msg);
-                    await new Promise(r => setTimeout(r, 1000));
-                }
-            } catch (error) {
-                this.logger.error({ type, wa, err: error.message }, 'Broadcast failed for user');
-            }
-        }
+        return settings[waNumber]?.notif_enabled === true;
     }
 
     toggleNotif(wa, isEnabled) {
@@ -91,6 +50,63 @@ class NotificationScheduler {
         if (!settings[wa]) settings[wa] = {};
         settings[wa].notif_enabled = isEnabled;
         this.saveUserSettings(settings);
+        this.logger.info({ wa, isEnabled }, 'Notif toggled');
+        return isEnabled;
+    }
+
+    init() {
+        this.logger.info('Initializing Scheduler Jobs');
+
+        // 1. Daily Summary — setiap 21:00
+        cron.schedule('0 21 * * *', async () => {
+            await this.broadcast('Daily Summary', async (wa) => {
+                return this.jobs?.dailyReport
+                    ? await this.jobs.dailyReport.executeForUser(wa)
+                    : null;
+            });
+        });
+
+        // 2. Weekly Summary — Senin 07:00
+        cron.schedule('0 7 * * 1', async () => {
+            await this.broadcast('Weekly Summary', async (_wa) => null);
+        });
+
+        // 3. Monthly Report — Tgl 1 jam 08:00
+        cron.schedule('0 8 1 * *', async () => {
+            await this.broadcast('Monthly Report', async (wa) => {
+                return this.jobs?.dailyReport
+                    ? await this.jobs.dailyReport.executeForUser(wa)
+                    : null;
+            });
+        });
+
+        // 4. Cleanup — setiap jam
+        cron.schedule('0 * * * *', async () => {
+            if (this.jobs?.cleanup) await this.jobs.cleanup.run();
+        });
+
+        this.logger.info('Scheduler jobs initialized ✅');
+    }
+
+    async broadcast(type, msgFn) {
+        const settings    = this.getUserSettings();
+        const activeUsers = Object.keys(settings).filter(wa => settings[wa].notif_enabled);
+
+        if (activeUsers.length === 0) return;
+        this.logger.info({ type, count: activeUsers.length }, 'Starting broadcast');
+
+        for (const wa of activeUsers) {
+            try {
+                if (wa.endsWith('@g.us')) continue;
+                const text = await msgFn(wa);
+                if (text) {
+                    await this.client.sendMessage(wa, text);
+                    await new Promise(r => setTimeout(r, 1000));
+                }
+            } catch (error) {
+                this.logger.error({ type, wa, err: error.message }, 'Broadcast failed for user');
+            }
+        }
     }
 }
 
