@@ -137,7 +137,18 @@ class DatabaseService {
     }
 
     async updateTransaction(waNumber, trxId, updateData) {
-        await this.trxRepo.update(trxId, waNumber, updateData);
+        // Whitelist field yang boleh diupdate
+        const ALLOWED = ['judul', 'nominal', 'kategori', 'catatan', 'nama_toko', 'deskripsi'];
+        const safeData = {};
+        for (const [k, v] of Object.entries(updateData)) {
+            if (ALLOWED.includes(k)) safeData[k] = v;
+        }
+        
+        if (Object.keys(safeData).length === 0) {
+            throw new Error('Tidak ada field valid untuk diupdate');
+        }
+
+        await this.trxRepo.update(trxId, waNumber, safeData);
     }
 
     async deleteTransaction(waNumber, trxId) {

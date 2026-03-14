@@ -112,30 +112,67 @@ class MessageHandler {
         
         switch (cur.step) {
             case 'menu':
-                switch (text) {
-                    case '1':
+                switch (lower) {
+                    case '1': case 'catat': case 'transaksi':
                         setState(from, 'await_tipe', {});
                         return msg.reply(MSG.chooseTipe());
-                    case '2':
+                    
+                    case '2': case 'laporan': case 'report':
                         await msg.reply('📊 Mengambil laporan bulan ini...');
-                        return msg.reply(await this.reportService.getMonthlyReport(from));
-                    case '3':
+                        return msg.reply(await this.reportService.getMonthlyReport(from).catch(e => '❌ ' + e.message));
+                    
+                    case '3': case 'saldo': case 'balance':
                         await msg.reply('💰 Menghitung saldo...');
                         return await this.report.showSaldo(msg, from);
-                    case '4':
+                    
+                    case '4': case 'riwayat': case 'history':
                         await msg.reply('📜 Mengambil riwayat transaksi...');
                         return await this.report.showRiwayat(msg, from);
-                    case '5':
+                    
+                    case '5': case 'budget': case 'anggaran':
                         return await this.budget.showMenu(msg, from);
-                    case '6':
+                    
+                    case '6': case 'kategori': case 'category':
                         return await this.category.showMenu(msg, from);
-                    case '7':
+                    
+                    case '7': case 'export': case 'unduh': case 'download':
                         return await this.routeExport(msg, from);
-                    case '8':
+                    
+                    case '8': case 'help': case 'bantuan':
                         return msg.reply(MSG.help());
-                    default:
-                        resetState(from);
-                        return await this.routeByCommand(msg, from, text, lower, namaUser);
+                    
+                    case '9': case 'edit': case 'hapus': case 'ubah': {
+                        const rows = await this.db.getHistory(from, 8);
+                        setState(from, 'await_edit_select', { rows });
+                        return msg.reply(MSG.editList(rows));
+                    }
+                    
+                    case '10': case 'notif': case 'notifikasi': case 'pengaturan notif': {
+                        const isEnable = this.scheduler ? this.scheduler.checkNotif(from) : false;
+                        return msg.reply(
+                            `🔔 *Pengaturan Notifikasi*\n━━━━━━━━━━━━━━━━━\n` +
+                            `Status saat ini: *${isEnable ? 'AKTIF ✅' : 'NONAKTIF ❌'}*\n\n` +
+                            `Jika aktif, bot akan mengirim:\n` +
+                            `• ☀️ Ringkasan Harian (pukul 21:00)\n` +
+                            `• 📅 Laporan Mingguan (Senin 07:00)\n` +
+                            `• 📊 Laporan Bulanan (Tgl 1 pukul 08:00)\n\n` +
+                            `_Ketik *notif on* untuk mengaktifkan_\n` +
+                            `_Ketik *notif off* untuk mematikan_\n\n` +
+                            `Ketik *menu* untuk kembali.`
+                        );
+                    }
+                    
+                    case 'dashboard':
+                        return msg.reply(MSG.dashboard(from));
+                    
+                    default: {
+                        // Coba deteksi input cepat (toko nominal)
+                        const q = text.match(/^(.+?)\s+([\d.,]+[kmbrt]*)$/i);
+                        if (q) {
+                            return await this.transaction.handleManualInput(msg, from, text, { data: {} }, namaUser);
+                        }
+                        return msg.reply(`❓ Pilih menu 1-10 atau ketik perintah.\n\n${MSG.menu(from)}`);
+                    }
                 }
 
             case 'await_tipe':
@@ -220,6 +257,88 @@ class MessageHandler {
                 }
                 resetState(from);
                 return msg.reply(MSG.cancelled());
+
+            case 'await_edit_select': {
+                const { rows, intent } = cur.data;
+                const idx = parseInt(lower) - 1;
+                if (lower === 'hapus') {
+                    setState(from, 'await_edit_select', { rows, intent: 'delete' });
+                    return msg.reply(`❓ Nomor transaksi yang mau dihapus? (1-${rows.length})\nKetik *batal* untuk kembali.`);
+                }
+                const hapusMatch = lower.match(/^hapus\s+(\d+)$/);
+                if (hapusMatch) {
+                    const hIdx = parseInt(hapusMatch[1]) - 1;
+                    if (hIdx >= 0 && hIdx < rows.length) {
+                        setState(from, 'await_delete_confirm', { trx: rows[hIdx] });
+                        return msg.reply(MSG.deleteConfirm(rows[hIdx]));
+                    }
+                }
+                if (isNaN(idx) || idx < 0 || idx >= rows.length) {
+                    return msg.reply(`❓ Pilih nomor 1-${rows.length} atau ketik *batal*.`);
+                }
+                if (intent === 'delete') {
+                    setState(from, 'await_delete_confirm', { trx: rows[idx] });
+                    return msg.reply(MSG.deleteConfirm(rows[idx]));
+                }
+                setState(from, 'await_edit_action', { trx: rows[idx] });
+                return msg.reply(MSG.editMenu(rows[idx]));
+            }
+
+            case 'await_edit_action': {
+                const { trx } = cur.data;
+                if (lower.includes('hapus') || lower === 'delete') {
+                    setState(from, 'await_delete_confirm', { trx });
+                    return msg.reply(MSG.deleteConfirm(trx));
+                }
+                const fieldMap = { '1': 'judul', '2': 'nominal', '3': 'kategori', '4': 'catatan' };
+                const fieldName = fieldMap[lower];
+                if (!fieldName) return msg.reply(`❓ Pilih 1-4 atau ketik *hapus*. Ketik *batal* untuk kembali.`);
+                setState(from, 'await_edit_value', { trx, field: fieldName });
+                if (fieldName === 'kategori') {
+                    return msg.reply(
+                        `🏷️ *Pilih Kategori Baru:*\n1. Makanan & Minuman\n2. Transportasi\n3. Kebutuhan Pokok\n4. Kesehatan\n5. Hiburan\n6. Belanja Online\n7. Fashion\n8. Tagihan\n9. Pendidikan\n10. Rumah Tangga\n11. Perjalanan\n12. Investasi\n13. Lain-lain\n\n_Balas angka 1-13_`
+                    );
+                }
+                return msg.reply(`✏️ *Ubah ${fieldName}*\n\nNilai saat ini: *${trx[fieldName] || '-'}*\n\nKetik nilai baru:`);
+            }
+
+            case 'await_edit_value': {
+                const { trx, field } = cur.data;
+                let newValue = text;
+                if (field === 'nominal') {
+                    newValue = parseInt(text.replace(/\D/g, ''));
+                    if (isNaN(newValue) || newValue <= 0) return msg.reply(`❌ Nominal tidak valid.\nContoh: \`75000\`\n\nCoba lagi:`);
+                } else if (field === 'kategori') {
+                    const kMap = { '1':'Makanan & Minuman','2':'Transportasi','3':'Kebutuhan Pokok','4':'Kesehatan','5':'Hiburan','6':'Belanja Online','7':'Fashion','8':'Tagihan','9':'Pendidikan','10':'Rumah Tangga','11':'Perjalanan','12':'Investasi','13':'Lain-lain' };
+                    newValue = kMap[lower] || text;
+                }
+                try {
+                    await this.db.updateTransaction(from, trx.id, { [field]: newValue });
+                    resetState(from);
+                    return msg.reply(`✅ *Transaksi Diperbarui!*\n\n${field.charAt(0).toUpperCase() + field.slice(1)}: ${trx[field] || '-'} → *${newValue}*\n\nKetik *menu* untuk kembali.`);
+                } catch (e) {
+                    this.logger.error({ from, err: e.message }, 'Update transaction failed');
+                    return msg.reply(`❌ Gagal mengubah: ${e.message}\n\nKetik *batal* untuk kembali.`);
+                }
+            }
+
+            case 'await_kategori_koreksi': {
+                const d = cur.data;
+                const kMap = { '1':'Makanan & Minuman','2':'Transportasi','3':'Kebutuhan Pokok','4':'Kesehatan','5':'Hiburan','6':'Belanja Online','7':'Fashion','8':'Tagihan','9':'Pendidikan','10':'Rumah Tangga','11':'Perjalanan','12':'Investasi','13':'Lain-lain' };
+                const kategori = kMap[lower] || text;
+                if (!kategori || kategori.length < 3) return msg.reply(`❌ Pilih angka 1-13.\nKetik *batal* untuk kembali.`);
+                setState(from, 'await_sub_koreksi', { ...d, newKategori: kategori });
+                return msg.reply(`✏️ *Kategori: ${kategori}*\n\nKetik sub-kategori:\n_Contoh: Fast Food, BBM, Ojek Online_\n\n_Ketik *skip* untuk otomatis_`);
+            }
+
+            case 'await_sub_koreksi': {
+                const d = cur.data;
+                const sub = lower === 'skip' ? d.newKategori : text;
+                const correctedAI = { ...d.ai, kategori: d.newKategori, sub, confidence: 99.0, status: '✅ Dikoreksi', method: 'User Feedback' };
+                this.ai.saveFeedback(from, d.toko, d.newKategori, sub).catch(() => {});
+                setState(from, 'await_confirm', { ...d, ai: correctedAI });
+                return msg.reply(`✅ *Kategori diperbarui!*\n🧠 AI akan belajar dari koreksi ini.\n\n${MSG.confirm({ ...d, ai: correctedAI })}`);
+            }
 
             default:
                 this.logger.warn({ from, step: cur.step }, 'Unknown state encountered');

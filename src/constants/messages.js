@@ -10,109 +10,88 @@ const MSG = {
     menu: (from) => 
         `📊 *FINANCE ASSISTANT*\n` +
         `━━━━━━━━━━━━━━━━━\n` +
-        `1️⃣  Catat Transaksi\n` +
+        `*📝 Catat Transaksi:*\n` +
+        `1️⃣  Catat Pengeluaran / Pemasukan\n\n` +
+        `*📈 Laporan & Data:*\n` +
         `2️⃣  Laporan Bulan Ini\n` +
         `3️⃣  Saldo & Ringkasan\n` +
-        `4️⃣  Riwayat Transaksi\n` +
-        `5️⃣  Atur Budget\n` +
+        `4️⃣  Riwayat Transaksi\n\n` +
+        `*⚙️ Pengaturan:*\n` +
+        `5️⃣  Atur Budget Bulanan\n` +
         `6️⃣  Kategori Custom\n` +
-        `7️⃣  Export Data\n` +
-        `8️⃣  Bantuan\n` +
+        `7️⃣  Export Data Excel\n` +
+        `8️⃣  Bantuan & Panduan\n` +
+        `9️⃣  Edit / Hapus Transaksi\n` +
+        `🔟  Pengaturan Notifikasi\n` +
         `━━━━━━━━━━━━━━━━━\n` +
-        `_Balas angka 1-8_\n\n` +
-        `atau langsung kirim transaksi seperti:\n` +
-        `_kopi 20k_\n` +
-        `_bensin 50rb_\n` +
-        `_gaji 5jt_\n\n` +
-        `🌐 *Dashboard Web:*\n` +
-        `https://wa-finance-tracker-dashboard.vercel.app/?id=${from}`,
+        `_Balas angka 1-10_\n\n` +
+        `💡 Atau langsung ketik transaksi:\n` +
+        `_kopi 20k · bensin 50rb · gaji 5jt_\n\n` +
+        `🌐 Dashboard: wa.me/finance?id=${from?.split('@')[0] || ''}`,
 
-    chooseTipe: () =>
-        `💳 *Catat Transaksi*\n━━━━━━━━━━━━━━━━━\n` +
-        `Jenis transaksi:\n\n` + 
-        `💸 *1. Pengeluaran* (bayar/beli)\n` +
-        `💰 *2. Pemasukan* (gaji/transfer masuk)\n\n` +
-        `_Balas 1 atau 2 | ketik *batal* untuk kembali_`,
-
-    chooseMethod: (tipe) =>
-        `✏️ *Catat Transaksi*\n` +
-        `━━━━━━━━━━━━━━━━━\n` +
-        `Kirim transaksi seperti:\n` +
-        `_kopi 20k_\n` +
-        `_bensin 50rb_\n` +
-        `_gaji 5jt_\n\n` +
-        `Atau kirim *foto struk / bukti transfer*.\n\n` +
-        `_ketik *batal* untuk kembali_`,
-
-    askTujuanTransfer: (namaPenerima, bankPengirim, nominal) => {
-        let msg = `🏦 *Terdeteksi: Bukti Transfer Bank*\n━━━━━━━━━━━━━━━━━\n`;
-        msg += `💸 Bank      : ${bankPengirim}\n`;
-        if (namaPenerima) msg += `👤 Penerima  : ${namaPenerima}\n`;
-        msg += `💵 Nominal   : Rp ${parseInt(nominal).toLocaleString('id-ID')}\n`;
-        msg += `\n*Transfer ini untuk apa?*\n`;
-        msg += `_Contoh:_\n`;
-        msg += `• Bayar kontrakan\n`;
-        msg += `• Kasih uang mama\n`;
-        msg += `• Bayar utang Andi\n`;
-        msg += `• Belanja titip Siti\n`;
-        msg += `• Bayar tagihan listrik\n\n`;
-        msg += `_(ketik *skip* untuk pakai nama penerima sebagai judul)_`;
+    saved: (d, saldo, alert, from) => {
+        const icon = d.tipe === 'masuk' ? '💰' : '💸';
+        const tipeLabel = d.tipe === 'masuk' ? 'Pemasukan' : 'Pengeluaran';
+        
+        let msg = `✅ *Transaksi Berhasil Disimpan!*\n━━━━━━━━━━━━━━━━━\n`;
+        msg += `${icon} *${d.judul}*\n`;
+        msg += `📂 Tipe     : ${tipeLabel}\n`;
+        msg += `💵 Nominal  : *Rp ${parseInt(d.nominal).toLocaleString('id-ID')}*\n`;
+        msg += `🏷️ Kategori : ${d.ai.kategori}`;
+        if (d.ai.sub && d.ai.sub !== 'Uncategorized') msg += ` › ${d.ai.sub}`;
+        msg += `\n🤖 AI       : ${d.ai.status} (${Math.round(d.ai.confidence)}%)\n`;
+        
+        if (saldo !== undefined) {
+          msg += `\n💳 *Saldo Bulan Ini:* Rp ${parseInt(saldo).toLocaleString('id-ID')}\n`;
+        }
+        
+        if (alert) msg += `\n${alert}\n`;
+        
+        msg += `\n━━━━━━━━━━━━━━━━━\n`;
+        msg += `*Selanjutnya:*\n`;
+        msg += `1️⃣ Catat transaksi lagi\n`;
+        msg += `2️⃣ Lihat laporan bulan ini\n`;
+        msg += `3️⃣ Cek saldo\n`;
+        msg += `4️⃣ Buka dashboard web\n\n`;
+        msg += `_atau ketik *menu* untuk pilihan lain_`;
         return msg;
     },
 
-    askJudul: (toko, nominal) =>
-        `📝 *Beri Judul Transaksi*\n━━━━━━━━━━━━━━━━━\n` +
-        `📝 Deskripsi: ${toko}\n` +
-        `💰 Nominal  : Rp ${parseInt(nominal).toLocaleString('id-ID')}\n\n` +
-        `Ketik judul/keterangan singkat:\n` +
-        `_Contoh: Makan siang, Bensin motor, Beli sabun_\n\n` +
-        `_(ketik *skip* untuk pakai deskripsi di atas sebagai judul)_`,
-
     confirm: (d) => {
+        const icon = d.tipe === 'masuk' ? '💰' : '💸';
         let msg = `🔍 *Konfirmasi Transaksi*\n━━━━━━━━━━━━━━━━━\n`;
-        msg += `${d.tipe === 'masuk' ? '💰' : '💸'} *Tipe   :* ${d.tipe === 'masuk' ? 'Pemasukan' : 'Pengeluaran'}\n`;
-        msg += `📌 *Judul  :* ${d.judul}\n`;
-        msg += `💵 *Nominal:* Rp ${parseInt(d.nominal).toLocaleString('id-ID')}\n`;
-        msg += `🏷️ *Kategori:* ${d.ai.kategori} › ${d.ai.sub}\n`;
-        msg += `🤖 *AI     :* ${d.ai.status} (${d.ai.confidence}%)\n`;
-        msg += `━━━━━━━━━━━━━━━━━\n`;
-        msg += `1️⃣ Simpan\n`;
-        msg += `2️⃣ Ubah Judul\n`;
-        msg += `3️⃣ Ubah Nominal\n`;
-        msg += `4️⃣ Batal\n`;
-        msg += `5️⃣ Koreksi Kategori _(bantu AI belajar)_\n`;
+        msg += `${icon} *${d.judul || d.toko}*\n\n`;
+        msg += `┌─ Detail ────────────────\n`;
+        msg += `│ Tipe    : ${d.tipe === 'masuk' ? '💰 Pemasukan' : '💸 Pengeluaran'}\n`;
+        msg += `│ Judul   : ${d.judul || '-'}\n`;
+        if (d.isTransfer) {
+          msg += `│ Penerima: ${d.toko}\n`;
+        } else {
+          msg += `│ Toko    : ${d.toko}\n`;
+        }
+        msg += `│ Nominal : *Rp ${parseInt(d.nominal).toLocaleString('id-ID')}*\n`;
+        msg += `│ Kategori: ${d.ai.kategori}`;
+        if (d.ai.sub && d.ai.sub !== 'Uncategorized') msg += ` › ${d.ai.sub}`;
+        msg += `\n│ AI Score: ${d.ai.status} ${Math.round(d.ai.confidence)}%\n`;
+        msg += `└─────────────────────────\n\n`;
+        msg += `1️⃣ ✅ Simpan\n`;
+        msg += `2️⃣ ✏️ Ubah Judul\n`;
+        msg += `3️⃣ 💵 Ubah Nominal\n`;
+        msg += `4️⃣ ❌ Batal\n`;
+        msg += `5️⃣ 🧠 Koreksi Kategori _(bantu AI belajar)_\n\n`;
         msg += `_Balas angka 1-5_`;
         return msg;
     },
 
-    saved: (d, saldo, alert, from) => {
-        let msg = `📌 *Transaksi Berhasil Disimpan*\n━━━━━━━━━━━━━━━━━\n`;
-        msg += `📝 *Deskripsi* : ${d.judul}\n`;
-        msg += `💰 *Nominal*   : Rp ${parseInt(d.nominal).toLocaleString('id-ID')}\n`;
-        msg += `🏷️ *Kategori*  : ${d.ai.kategori}\n\n`;
-        if (saldo !== undefined) msg += `📊 *Saldo sekarang* : Rp ${parseInt(saldo).toLocaleString('id-ID')}\n\n`;
-        if (alert) msg += `${alert}\n\n`;
-        
-        msg += `*What's next?*\n\n`;
-        msg += `1️⃣ Catat transaksi lagi\n`;
-        msg += `2️⃣ Laporan hari ini\n`;
-        msg += `3️⃣ Lihat saldo\n`;
-        msg += `4️⃣ Buka dashboard\n\n`;
-        msg += `🌐 ${MSG.dashboardLink(from)}`;
-        return msg;
-    },
-
     fallback: () => 
-        `❓ *Aku belum mengerti pesan itu.*\n\n` +
-        `Coba salah satu:\n` +
-        `1️⃣ Catat transaksi\n` +
-        `2️⃣ Lihat laporan\n` +
-        `3️⃣ Lihat saldo\n` +
-        `4️⃣ Buka dashboard\n\n` +
-        `atau kirim transaksi seperti:\n` +
-        `_kopi 20k_\n` +
-        `_bensin 50rb_\n` +
-        `_gaji 5jt_`,
+        `❓ *Perintah tidak dikenali.*\n\n` +
+        `💡 *Cara menggunakan:*\n` +
+        `• Ketik *menu* untuk daftar fitur\n` +
+        `• Langsung ketik transaksi, contoh:\n` +
+        `  _kopi 20k_  →  pengeluaran Rp 20.000\n` +
+        `  _gaji 5jt_  →  pemasukan Rp 5.000.000\n` +
+        `  _bensin 50rb_  →  pengeluaran Rp 50.000\n\n` +
+        `📸 Atau kirim foto struk/bukti transfer`,
 
     dashboard: (from) => 
         `📊 *Dashboard Keuangan*\n━━━━━━━━━━━━━━━━━\n` +
@@ -212,7 +191,7 @@ const MSG = {
         msg += `Ketik *menu* untuk kembali`;
         return msg;
     },
-
+ 
     editList: (rows) => {
         if (!rows || rows.length === 0) return `📭 Belum ada transaksi.`;
         let msg = `✏️ *Pilih Transaksi untuk Edit / Hapus*\n━━━━━━━━━━━━━━━━━\n`;
