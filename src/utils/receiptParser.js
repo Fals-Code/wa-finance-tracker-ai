@@ -119,8 +119,15 @@ function extractNominal(rawText) {
     // CLEANING: Harga Coret & Diskon
     // ═══════════════════════════════════════════════════════════
     const cleanedText = rawText
-        .replace(/rp\.?\s*[\d.,]+\s*rp\.?\s*([\d.,]+)/gi, 'Rp$1')
-        .replace(/[-]\s*rp\.?\s*[\d.,]+/gi, '');
+        .split('\n')
+        .map(line => {
+            // Harga coret: "Rp799.000 Rp539.000" pada SATU BARIS → ambil yang kedua
+            const strikeMatch = line.match(/^(.*?)rp\.?\s*[\d.,]+\s+rp\.?\s*([\d.,]+)(.*?)$/i);
+            if (strikeMatch) return `${strikeMatch[1]}Rp${strikeMatch[2]}${strikeMatch[3]}`;
+            return line;
+        })
+        .join('\n')
+        .replace(/[-]\s*rp\.?\s*[\d.,]+/gi, ''); // Strip negative discounts
 
     const totalPatterns = [
         /(?:total\s*(?:harga|bayar|tagihan|pembayaran|pembelian|penjualan|transaksi)?)\s*[:\-]?\s*rp\.?\s*([\d.,]+)/i,
@@ -154,7 +161,18 @@ function extractNominal(rawText) {
         .filter(n => !isNaN(n) && n >= 1000 && n <= 500_000_000);
 
     if (bottomNums.length > 0) {
-        // E-commerce tendency: last number is usually the final bill
+        // Filter numbers that are plausible for a total (usually >= 5000)
+        const validNums = bottomNums.filter(n => n >= 5000);
+        if (validNums.length > 0) {
+            // E-commerce: total is usually unique and in the very bottom part
+            const lastThirdLines = lines.slice(Math.floor(lines.length * 0.7));
+            const lastThirdNums = [...lastThirdLines.join('\n').matchAll(/\b(\d[\d.,]{2,})\b/g)]
+                .map(m => parseInt(m[1].replace(/[.,]/g, '')))
+                .filter(n => !isNaN(n) && n >= 5000 && n <= 500_000_000);
+            
+            if (lastThirdNums.length > 0) return lastThirdNums[lastThirdNums.length - 1];
+            return Math.max(...validNums);
+        }
         return bottomNums[bottomNums.length - 1];
     }
 

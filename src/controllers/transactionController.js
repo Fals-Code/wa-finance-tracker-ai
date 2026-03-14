@@ -126,7 +126,9 @@ class TransactionController {
         }
 
         if (lower === '2') {
-            setState(from, 'await_judul', cur.data);
+            const dataForEdit = { ...cur.data };
+            delete dataForEdit.judul; // reset existing judul so skip works correctly
+            setState(from, 'await_judul', dataForEdit);
             return msg.reply(MSG.askJudul(cur.data.toko, cur.data.nominal));
         }
 

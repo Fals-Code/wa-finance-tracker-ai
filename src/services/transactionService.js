@@ -21,21 +21,20 @@ class TransactionService {
 
     async isDuplicate(waNumber, nominal, deskripsi) {
         this.logger.debug({ waNumber, nominal, deskripsi }, 'Checking for duplicate transaction');
-        const now = new Date();
-        const thirtySecondsAgo = new Date(now.getTime() - 30 * 1000).toISOString();
-        
-        const recent = await this.db.getTransactions(waNumber, thirtySecondsAgo);
-        
-        const dup = recent.find(r => 
-            parseInt(r.nominal) === parseInt(nominal) && 
-            (r.judul === deskripsi || r.nama_toko === deskripsi)
-        );
+        try {
+            const thirtySecondsAgo = new Date(Date.now() - 30 * 1000).toISOString();
+            const data = await this.db.getRecentTransactions(waNumber, thirtySecondsAgo);
 
-        if (dup) {
-            this.logger.warn({ waNumber, nominal, deskripsi }, 'Duplicate transaction detected');
-            return true;
+            if (!data || data.length === 0) return false;
+
+            return data.some(r =>
+                parseInt(r.nominal) === parseInt(nominal) &&
+                (r.judul === deskripsi || r.nama_toko === deskripsi || r.deskripsi === deskripsi)
+            );
+        } catch (e) {
+            this.logger.warn({ err: e.message }, 'isDuplicate check failed, skipping');
+            return false; // Fail-safe
         }
-        return false;
     }
 
     async getLaporan(waNumber) {
@@ -88,7 +87,7 @@ class TransactionService {
         for (const r of data.slice(0, 5)) {
             const tgl = new Date(r.tanggal).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
             const icon = r.tipe === 'masuk' ? '💰' : '💸';
-            const label = r.judul || r.nama_toko || '-';
+            const label = r.judul || r.deskripsi || r.nama_toko || 'Transaksi';
             msg += `${icon} ${tgl} ${label} — Rp ${parseInt(r.nominal).toLocaleString('id-ID')}\n`;
         }
 
@@ -148,7 +147,8 @@ class TransactionService {
         let msg = `📜 *RIWAYAT TRANSAKSI TERAKHIR*\n━━━━━━━━━━━━━━━━━━━━\n`;
         data.forEach((r, i) => {
             const icon = r.tipe === 'masuk' ? '➕' : '➖';
-            msg += `${i + 1}. [${r.tanggal}] ${icon} *${r.deskripsi || 'Tanpa Judul'}*\n   Rp ${parseInt(r.nominal).toLocaleString('id-ID')}\n`;
+            const label = r.judul || r.deskripsi || r.nama_toko || 'Transaksi';
+            msg += `${i + 1}. [${r.tanggal}] ${icon} *${label}*\n   Rp ${parseInt(r.nominal).toLocaleString('id-ID')}\n`;
         });
         msg += `\n━━━━━━━━━━━━━━━━━━━━\nKetik *menu* untuk kembali.`;
         return msg;

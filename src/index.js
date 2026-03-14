@@ -75,7 +75,7 @@ const exportService = new ExportService(supabase, logger)
 
 const reportService = new ReportService(dbService, logger)
 const insightService = new InsightService(dbService, logger)
-const aiLearningService = new AILearningService(repositories, logger)
+const aiLearningService = new AILearningService(dbService, logger)
 const statsService = new StatsService(dbService, logger)
 const semanticAI = new SemanticAIService(dbService, logger)
 const patternInsight = new PatternInsightService(dbService, logger)
@@ -93,7 +93,7 @@ const services = {
   ai: aiService,
   ocr: ocrService,
   category: categoryService,
-  export: exportService,
+  exportService: exportService,
   report: reportService,
   insight: insightService,
   aiLearning: aiLearningService,
@@ -239,6 +239,9 @@ client.on('ready', async () => {
     jobs: { dailyReport: dailyReportJob, cleanup: cleanupJob }
   })
   scheduler.init()
+  
+  // Inject scheduler to handler for notif on/off
+  handler.scheduler = scheduler
 
   // Load AI dataset
   await aiService.loadDataset().catch(e => logger.error(e))

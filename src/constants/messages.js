@@ -120,7 +120,8 @@ const MSG = {
         MSG.dashboardLink(from),
 
     dashboardLink: (from) => {
-        const waNumber = from.split('@')[0];
+        if (!from) return 'https://wa-finance-tracker-dashboard.vercel.app';
+        const waNumber = from.includes('@') ? from.split('@')[0] : from;
         return `https://wa-finance-tracker-dashboard.vercel.app/?id=${waNumber}`;
     },
 
@@ -179,7 +180,7 @@ const MSG = {
         rows.forEach((r, i) => {
             const tgl   = new Date(r.tanggal).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
             const icon  = r.tipe === 'masuk' ? '💰' : '💸';
-            const label = r.judul || r.nama_toko || '-';
+            const label = r.judul || r.deskripsi || r.nama_toko || 'Transaksi';
             const nom   = parseInt(r.nominal).toLocaleString('id-ID');
             msg += `*${i + 1}.* ${icon} ${label}\n`;
             msg += `    ${tgl} | ${r.kategori} | Rp ${nom}\n`;
@@ -194,7 +195,7 @@ const MSG = {
         const createdAt = new Date(r.created_at).toLocaleString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
         const icon = r.tipe === 'masuk' ? '💰' : '💸';
         let msg = `${icon} *Detail Transaksi*\n━━━━━━━━━━━━━━━━━\n`;
-        msg += `📌 *Judul     :* ${r.judul || '-'}\n`;
+        msg += `📌 *Judul     :* ${r.judul || r.deskripsi || '-'}\n`;
         msg += `🏪 *Toko      :* ${r.nama_toko || '-'}\n`;
         msg += `💵 *Nominal   :* Rp ${parseInt(r.nominal).toLocaleString('id-ID')}\n`;
         msg += `🔄 *Tipe      :* ${r.tipe === 'masuk' ? 'Pemasukan 💰' : 'Pengeluaran 💸'}\n`;
@@ -216,7 +217,7 @@ const MSG = {
         if (!rows || rows.length === 0) return `📭 Belum ada transaksi.`;
         let msg = `✏️ *Pilih Transaksi untuk Edit / Hapus*\n━━━━━━━━━━━━━━━━━\n`;
         rows.forEach((r, i) => {
-            const label = r.judul || r.nama_toko || '-';
+            const label = r.judul || r.deskripsi || r.nama_toko || 'Transaksi';
             const nom   = parseInt(r.nominal).toLocaleString('id-ID');
             msg += `*${i + 1}.* ${label} (Rp ${nom})\n`;
         });
@@ -228,7 +229,7 @@ const MSG = {
     editMenu: (r) => {
         const icon = r.tipe === 'masuk' ? '💰' : '💸';
         let msg = `✏️ *Edit Transaksi*\n━━━━━━━━━━━━━━━━━\n`;
-        msg += `${icon} *${r.judul || r.nama_toko || '-'}* (Rp ${parseInt(r.nominal).toLocaleString('id-ID')})\n`;
+        msg += `${icon} *${r.judul || r.deskripsi || r.nama_toko || 'Transaksi'}* (Rp ${parseInt(r.nominal).toLocaleString('id-ID')})\n`;
         msg += `🏷️ Kategori: ${r.kategori}\n\n`;
         msg += `Mau ubah apa?\n`;
         msg += `1️⃣ Judul\n`;
@@ -245,7 +246,7 @@ const MSG = {
     deleteConfirm: (r) => {
         let msg = `⚠️ *KONFIRMASI HAPUS*\n━━━━━━━━━━━━━━━━━\n`;
         msg += `Apakah kamu yakin ingin MENGHAPUS transaksi ini permanen?\n\n`;
-        msg += `*${r.judul || r.nama_toko}* — Rp ${parseInt(r.nominal).toLocaleString('id-ID')}\n\n`;
+        msg += `*${r.judul || r.deskripsi || r.nama_toko || 'Transaksi'}* — Rp ${parseInt(r.nominal).toLocaleString('id-ID')}\n\n`;
         msg += `Ketik *YA* untuk menghapus.\n`;
         msg += `Ketik *BATAL* untuk membatalkan.`;
         return msg;

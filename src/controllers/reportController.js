@@ -28,13 +28,19 @@ class ReportController {
 
     async handleDetailPick(msg, from, text, cur) {
         const idx = parseInt(text) - 1;
-        if (idx < 0 || idx >= (cur.data.rows?.length || 0)) {
-            return msg.reply('❌ Pilihan tidak valid.');
+        if (isNaN(idx) || idx < 0 || idx >= (cur.data.rows?.length || 0)) {
+            return msg.reply('❌ Pilihan tidak valid. Balas nomor yang tersedia.');
         }
         
         const trxId = cur.data.rows[idx].id;
         this.logger.debug({ from, trxId }, 'Showing transaction detail');
+        
         const detail = await this.db.getTransactionDetail(from, trxId);
+        
+        if (!detail) {
+            resetState(from);
+            return msg.reply('❌ Transaksi tidak ditemukan atau sudah dihapus.\n\nKetik *menu* untuk kembali.');
+        }
         
         setState(from, 'await_detail_view', { trx: detail });
         return msg.reply(MSG.detailTrx(detail));

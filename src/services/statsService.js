@@ -13,8 +13,13 @@ class StatsService {
         const now = new Date();
         const startOfMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
         
-        const allRows = await this.db.getTransactions(waNumber);
-        const monthRows = allRows.filter(r => new Date(r.tanggal) >= new Date(startOfMonth));
+        // Limit to last 12 months for performance
+        const twelveMonthsAgo = new Date();
+        twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
+        const fromDate = twelveMonthsAgo.toISOString().split('T')[0];
+        
+        const allRows = await this.db.getTransactions(waNumber, fromDate);
+        const monthRows = allRows.filter(r => r.tanggal >= startOfMonth);
 
         const totalTrx = allRows.length;
         const totalKeluar = allRows.filter(r => r.tipe !== 'masuk').reduce((s, r) => s + parseInt(r.nominal || 0), 0);

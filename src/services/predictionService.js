@@ -15,8 +15,12 @@ class PredictionService {
     async predictPatterns(waNumber) {
         this.logger.info({ waNumber }, 'Analyzing transaction patterns for prediction');
 
-        const transactions = await this.db.getTransactions(waNumber);
-        if (transactions.length < 5) return null;
+        const threeMonthsAgo = new Date();
+        threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+        const dari = threeMonthsAgo.toISOString().split('T')[0];
+        
+        const transactions = await this.db.getTransactions(waNumber, dari);
+        if (!transactions || transactions.length < 5) return null;
 
         const patterns = {};
 

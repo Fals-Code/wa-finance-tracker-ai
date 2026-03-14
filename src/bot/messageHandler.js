@@ -25,6 +25,8 @@ class MessageHandler {
         this.healthService = services.health;
         this.predictionService = services.prediction;
         this.otpService = services.otp;
+        this.exportService = services.exportService; // Added
+        this.scheduler = null; // Will be injected via index.js
         this.logger = logger;
     }
 
@@ -186,6 +188,39 @@ class MessageHandler {
             case 'await_detail_pick':
                 return await this.report.handleDetailPick(msg, from, text, cur);
 
+            case 'await_detail_view':
+                const { trx } = cur.data;
+                if (lower.includes('hapus') || lower === 'delete') {
+                    setState(from, 'await_delete_confirm', { trx });
+                    return msg.reply(
+                        `⚠️ *KONFIRMASI HAPUS*\n━━━━━━━━━━━━━━━━━\n` +
+                        `Hapus: *${trx.judul || trx.nama_toko || trx.deskripsi}* — Rp ${parseInt(trx.nominal).toLocaleString('id-ID')}?\n\n` +
+                        `Ketik *YA* untuk hapus atau *batal* untuk kembali.`
+                    );
+                }
+                if (lower.includes('edit') || lower.includes('ubah')) {
+                    setState(from, 'await_edit_action', { trx });
+                    return msg.reply(MSG.editMenu(trx));
+                }
+                resetState(from);
+                return msg.reply(MSG.menu(from));
+
+            case 'await_delete_confirm':
+                const { trx: trxDel } = cur.data;
+                if (lower === 'ya' || lower === 'yes') {
+                    try {
+                        await this.db.deleteTransaction(from, trxDel.id);
+                        resetState(from);
+                        return msg.reply(`✅ Transaksi *${trxDel.judul || trxDel.deskripsi || trxDel.nama_toko}* berhasil dihapus.\n\nKetik *menu* untuk kembali.`);
+                    } catch (e) {
+                        this.logger.error({ from, err: e.message }, 'Delete failed');
+                        resetState(from);
+                        return msg.reply(`❌ Gagal menghapus: ${e.message}`);
+                    }
+                }
+                resetState(from);
+                return msg.reply(MSG.cancelled());
+
             default:
                 this.logger.warn({ from, step: cur.step }, 'Unknown state encountered');
                 resetState(from);
@@ -239,18 +274,67 @@ class MessageHandler {
         if (lower === 'dashboard') return msg.reply(MSG.dashboard(from));
         
         // QUICK INPUT DETECTION
+        if (/^\d+$/.test(text.trim()) && parseInt(text) > 0) {
+            setState(from, 'menu', {});
+            return msg.reply(MSG.menu(from));
+        }
+
         if (text.match(/^(.+?)\s+([\d.,]+[kmbrt]*)$/i)) {
             return await this.transaction.handleManualInput(msg, from, text, { data: {} }, namaUser);
         }
 
+        // NOTIF TOGGLE
+        if (lower === 'notif on' || lower === 'notif off') {
+            const isEnable = lower === 'notif on';
+            if (this.scheduler) {
+                this.scheduler.toggleNotif(from, isEnable);
+            }
+            return msg.reply(isEnable 
+                ? `🔔 *Notifikasi Aktif!*\nKamu akan menerima ringkasan harian pukul 21:00.`
+                : `🔕 *Notifikasi Dimatikan.*`
+            );
+        }
+
         // FINAL FALLBACK
-        return msg.reply(MSG.fallback());
+        setState(from, 'menu', {});
+        return msg.reply(`${MSG.fallback()}\n\n${MSG.menu(from)}`);
     }
 
     async routeExport(msg, from) {
         this.logger.info({ from }, 'Handling export request');
         await msg.reply('⏳ Menyiapkan file Excel...');
-        // (Delegation to service)
+        
+        try {
+            const os = require('os');
+            const path = require('path');
+            const fs = require('fs');
+            const { MessageMedia } = require('whatsapp-web.js');
+            
+            const now = new Date();
+            const bulanKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+            const tmpPath = path.join(os.tmpdir(), `transaksi_${Date.now()}.xlsx`);
+            
+            const ok = this.exportService 
+                ? await this.exportService.generateExportXLSX(from, tmpPath)
+                : false;
+                
+            if (!ok) {
+                return msg.reply('📭 Belum ada data transaksi untuk di-export.');
+            }
+            
+            const media = MessageMedia.fromFilePath(tmpPath);
+            media.filename = `transaksi_${bulanKey}.xlsx`;
+            media.mimetype = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+            
+            await msg.reply(media, undefined, {
+                caption: `📊 *Export Data Transaksi*\n✅ File Excel siap!\n• Kuning = pengeluaran\n• Hijau = pemasukan`
+            });
+            
+            try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch (_) {}
+        } catch (e) {
+            this.logger.error({ from, err: e.message }, 'Export failed');
+            await msg.reply('❌ Gagal export. Coba lagi nanti.');
+        }
     }
 }
 

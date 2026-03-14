@@ -20,7 +20,7 @@ class DailyReportJob {
     async executeForUser(wa) {
         const today = new Date().toISOString().split('T')[0];
         const { data } = await this.supabase.from('transaksi')
-            .select('nominal, judul, nama_toko')
+            .select('nominal, judul, nama_toko, deskripsi')
             .eq('wa_number', wa).eq('tipe', 'keluar').eq('tanggal', today);
         
         if (!data || data.length === 0) return null;
@@ -28,7 +28,7 @@ class DailyReportJob {
         
         let msg = `🌙 *Ringkasan Pengeluaran Hari Ini*\n━━━━━━━━━━━━━━━━━\n`;
         msg += `Total Keluar: *Rp ${total.toLocaleString('id-ID')}*\n\n`;
-        data.forEach(r => msg += `• ${r.judul || r.nama_toko} (Rp ${parseInt(r.nominal).toLocaleString('id-ID')})\n`);
+        data.forEach(r => msg += `• ${r.judul || r.deskripsi || r.nama_toko || 'Transaksi'} (Rp ${parseInt(r.nominal).toLocaleString('id-ID')})\n`);
         return msg;
     }
 }

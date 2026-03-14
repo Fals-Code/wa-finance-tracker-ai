@@ -3,12 +3,17 @@
  */
 class DatabaseService {
     constructor(repositories, logger) {
-        this.userRepo = repositories.user;
-        this.trxRepo = repositories.transaction;
-        this.budgetRepo = repositories.budget;
-        this.categoryRepo = repositories.category;
+        this._userRepo = repositories.user;
+        this._trxRepo = repositories.transaction;
+        this._budgetRepo = repositories.budget;
+        this._categoryRepo = repositories.category;
         this.logger = logger;
     }
+
+    get userRepo() { return this._userRepo; }
+    get trxRepo() { return this._trxRepo; }
+    get budgetRepo() { return this._budgetRepo; }
+    get categoryRepo() { return this._categoryRepo; }
 
     async getOrCreateProfile(waNumber, nama) {
         const profile = await this.userRepo.findByWa(waNumber);
@@ -23,19 +28,28 @@ class DatabaseService {
         if (oldId === newId) return;
         this.logger.info({ oldId, newId }, 'Migrating user data across repositories');
         
-        await this.trxRepo.migrate(oldId, newId);
-        await this.budgetRepo.migrate(oldId, newId);
-        await this.categoryRepo.migrate(oldId, newId);
-        
-        const oldProfile = await this.userRepo.findByWa(oldId);
-        if (oldProfile) {
-            await this.userRepo.create({ 
-                wa_number: newId,
-                nama: oldProfile.nama,
-                authcode: oldProfile.authcode,
-                last_active: oldProfile.last_active 
-            });
-            await this.userRepo.delete(oldId);
+        try {
+            await this.trxRepo.migrate(oldId, newId);
+            await this.budgetRepo.migrate(oldId, newId);
+            await this.categoryRepo.migrate(oldId, newId);
+            
+            const oldProfile = await this.userRepo.findByWa(oldId);
+            if (oldProfile) {
+                // Check if newId already exists (migration already happened)
+                const existingNew = await this.userRepo.findByWa(newId);
+                if (!existingNew) {
+                    await this.userRepo.create({ 
+                        wa_number: newId,
+                        nama: oldProfile.nama,
+                        authcode: oldProfile.authcode,
+                        last_active: oldProfile.last_active 
+                    });
+                }
+                await this.userRepo.delete(oldId);
+            }
+            this.logger.info({ newId }, 'Migration complete');
+        } catch (e) {
+            this.logger.error({ oldId, newId, err: e.message }, 'Migration failed');
         }
     }
 
@@ -46,13 +60,11 @@ class DatabaseService {
 
     async saveTransaction(waNumber, namaUser, data) {
         const { toko, nominal, ai, sumber, catatan, judul, tipe } = data;
-        await this.trxRepo.create({
+        
+        const record = {
             wa_number: waNumber,
             nama_user: namaUser,
             tanggal: new Date().toISOString().split('T')[0],
-            deskripsi: judul || toko, // schema v2 uses 'deskripsi'
-            nama_toko: toko, // Legacy support
-            judul: judul, // Legacy support
             nominal: nominal,
             kategori: ai.kategori,
             sub_kategori: ai.sub,
@@ -61,7 +73,15 @@ class DatabaseService {
             status_validasi: ai.status,
             catatan: catatan || '',
             tipe: tipe || 'keluar',
-        });
+        };
+
+        // Support both schema versions gracefully
+        const judulValue = judul || toko || 'Transaksi';
+        record.judul = judulValue;  // schema lama
+        record.nama_toko = toko || '';  // schema lama
+        record.deskripsi = judulValue;  // schema baru
+
+        await this.trxRepo.create(record);
     }
 
     async getBudget(waNumber, bulanKey) {
@@ -86,7 +106,26 @@ class DatabaseService {
     }
 
     async getTransactions(waNumber = null, dariTanggal = null) {
+        if (waNumber === null) {
+            // Global query — for dashboard analytics
+            let query = this.trxRepo.supabase.from('transaksi').select('*');
+            if (dariTanggal) query = query.gte('tanggal', dariTanggal);
+            const { data, error } = await query.order('created_at', { ascending: false });
+            if (error) throw new Error(error.message);
+            return data || [];
+        }
         return await this.trxRepo.getByWaNumber(waNumber, dariTanggal ? { dariTanggal } : {});
+    }
+
+    async getRecentTransactions(waNumber, sinceIso, limit = 20) {
+        const { data, error } = await this.trxRepo.supabase
+            .from('transaksi')
+            .select('nominal, judul, nama_toko, deskripsi')
+            .eq('wa_number', waNumber)
+            .gte('created_at', sinceIso)
+            .limit(limit);
+        if (error) throw new Error(error.message);
+        return data || [];
     }
 
     async getHistory(waNumber, limit = 10) {
