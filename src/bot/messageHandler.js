@@ -80,7 +80,7 @@ class MessageHandler {
             return;
         }
 
-        // 3. Global Priority Commands
+        // 3. Global Priority Commands (selalu jalan di state apapun)
         if (['batal', 'cancel'].includes(lower)) {
             resetState(from);
             return msg.reply(MSG.cancelled());
@@ -92,11 +92,15 @@ class MessageHandler {
         }
 
         // 4. State Handlers
-        if (cur.step !== 'idle' && cur.step !== 'menu') {
+        // PENTING: state 'menu' HARUS masuk routeByState agar case '5'-'10' ter-handle
+        // Sebelumnya ada bug: `cur.step !== 'menu'` di-exclude → semua angka 5-10 fallback
+        if (cur.step !== 'idle') {
             return await this.routeByState(msg, from, cur, text, lower, namaUser);
         }
 
-        // 5. Direct Commands (idle / menu fallthrough)
+        // 5. Jika idle, pastikan set state ke menu dulu sebelum routing command
+        // Ini memastikan pesan berikutnya sudah punya konteks
+        setState(from, 'menu', {});
         return await this.routeByCommand(msg, from, text, lower, namaUser, cur);
     }
 
@@ -479,10 +483,19 @@ class MessageHandler {
     }
 
     // ================================================================
-    // ROUTE BY COMMAND (idle / tidak ada state aktif)
+    // ROUTE BY COMMAND
+    // Dipanggil saat user di state idle. State sudah di-set ke 'menu' sebelumnya.
+    // Juga handle angka 1-10 agar user yang baru saja melihat menu bisa langsung pilih.
     // ================================================================
     async routeByCommand(msg, from, text, lower, namaUser, cur) {
         this.logger.debug({ from, command: lower }, 'Routing by command');
+
+        // --- Angka menu 1-10: redirect ke routeByState dengan state 'menu' ---
+        // Ini fix agar user yang idle tapi ketik angka tetap ter-handle
+        if (/^([1-9]|10)$/.test(lower.trim())) {
+            const fakeMenuState = { step: 'menu', data: {}, lastActive: Date.now() };
+            return await this.routeByState(msg, from, fakeMenuState, text, lower, namaUser);
+        }
 
         // --- Global command aliases ---
         if (['laporan', 'report', 'laporan bulan', 'laporan bulanan'].includes(lower)) {
