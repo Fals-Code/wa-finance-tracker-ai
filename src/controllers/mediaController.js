@@ -8,6 +8,7 @@ class MediaController {
     constructor(services, logger) {
         this.ocrService = services.ocr;
         this.aiService = services.ai;
+        this.splitBillService = services.splitBill;
         this.logger = logger;
     }
 
@@ -18,7 +19,23 @@ class MediaController {
             return false;
         }
 
-        this.logger.info({ from }, 'Processing incoming photo for OCR');
+        this.logger.info({ from }, 'Processing incoming photo...');
+        
+        // ── SPLIT BILL DETECTION ──
+        const caption = msg.body?.toLowerCase() || '';
+        if (caption.includes('split') || caption.includes('patungan') || caption.includes('bagi')) {
+            await msg.reply('🧮 *Menghitung Split Bill...*\n⏳ _(5-15 detik, AI sedang membaca menu & pajak)_');
+            try {
+                const b64Data = `data:${media.mimetype};base64,${media.data}`;
+                const resultMsg = await this.splitBillService.splitBill(b64Data, media.mimetype, caption, from);
+                return await msg.reply(resultMsg);
+            } catch (err) {
+                this.logger.error({ error: err.message }, 'Split Bill error');
+                return await msg.reply('❌ Gagal membaca struk untuk split bill. Pastikan foto struk jelas dan tegak lurus.');
+            }
+        }
+
+        // ── REGULAR RECEIPT OCR ──
         await msg.reply('🔍 *Membaca foto...*\n⏳ _(5-15 detik)_');
 
         try {

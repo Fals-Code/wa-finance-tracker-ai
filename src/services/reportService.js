@@ -113,6 +113,29 @@ class ReportService {
             }
             msg += '\n';
         }
+
+        // ⚖️ 50/30/20 ANALYSIS
+        const klasifikasi = { Needs: 0, Wants: 0, Savings: 0 };
+        keluar.forEach(r => {
+            const catatan = r.catatan || '';
+            const match = catatan.match(/\[AI: (Needs|Wants|Savings)\]/);
+            const key = match ? match[1] : 'Needs'; // Default to Needs if not classified
+            klasifikasi[key] += parseInt(r.nominal || 0);
+        });
+
+        const pctNeeds = Math.round((klasifikasi.Needs / (totalKeluar || 1)) * 100);
+        const pctWants = Math.round((klasifikasi.Wants / (totalKeluar || 1)) * 100);
+        const pctSavings = Math.round((klasifikasi.Savings / (totalKeluar || 1)) * 100);
+
+        msg += `*⚖️ Analisis Needs vs Wants (50/30/20):*\n`;
+        msg += `🏠 *Needs   :* ${pctNeeds}% (Rp ${klasifikasi.Needs.toLocaleString('id-ID')})\n`;
+        msg += `🎡 *Wants   :* ${pctWants}% (Rp ${klasifikasi.Wants.toLocaleString('id-ID')})\n`;
+        msg += `🐷 *Savings :* ${pctSavings}% (Rp ${klasifikasi.Savings.toLocaleString('id-ID')})\n\n`;
+
+        if (pctNeeds > 60) msg += `💡 *Saran AI:* Pengeluaran 'Needs' kamu terlalu tinggi (>50%). Coba review tagihan rutin atau biaya makan darurat.\n\n`;
+        else if (pctWants > 40) msg += `💡 *Saran AI:* 'Wants' kamu cukup tinggi (>30%). Kurangi jajan/hiburan untuk mempertebal tabungan!\n\n`;
+        else msg += `💡 *Saran AI:* Rasio keuanganmu cukup sehat! Pertahankan proporsi ini. ✅\n\n`;
+      
       
         msg += `*🕐 5 Transaksi Terakhir:*\n`;
         rows.slice(0, 5).forEach(r => {

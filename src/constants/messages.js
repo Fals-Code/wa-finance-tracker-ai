@@ -25,14 +25,39 @@ const MSG = {
             `7️⃣  Export Data Excel\n` +
             `8️⃣  Bantuan & Panduan\n` +
             `9️⃣  Edit / Hapus Transaksi\n` +
-            `🔟  Pengaturan Notifikasi\n` +
+            `🔟  Pengaturan Notifikasi\n\n` +
+            `*🧠 AI Intelligence:*\n` +
+            `🧠 *ai* — Tanya Jawab AI (RAG)\n` +
+            `❤️ *health* — Skor Kesehatan Keuangan\n` +
+            `🔮 *pola* — Prediksi & Insight Pola\n` +
+            `🎯 *target* — Atur & Pantau Tabungan\n` +
+            `🤖 *persona* — Ubah Kepribadian AI\n` +
             `━━━━━━━━━━━━━━━━━\n` +
-            `_Balas angka 1-10_\n\n` +
-            `💡 Atau langsung ketik transaksi:\n` +
+            `_Balas angka 1-10 atau ketik perintah AI_\n\n` +
+            `💡 Langsung ketik transaksi:\n` +
             `_kopi 20k · bensin 50rb · gaji 5jt_\n\n` +
             `🌐 *Dashboard:* https://wa-finance-tracker-dashboard.vercel.app/${waId ? '?id=' + waId : ''}`
         );
     },
+
+    goalMenu: () =>
+        `🎯 *Target Tabungan (Saving Goals)*\n━━━━━━━━━━━━━━━━━\n` +
+        `Kelola target masa depanmu:\n\n` +
+        `1️⃣  Lihat Semua Target\n` +
+        `2️⃣  Tambah Target Baru\n\n` +
+        `_Balas 1 atau 2 | ketik *batal* untuk kembali_`,
+
+    askGoalName: () =>
+        `✏️ *Nama Target Baru*\n━━━━━━━━━━━━━━━━━\n` +
+        `Kamu mau nabung buat apa?\n` +
+        `_Contoh: Laptop baru, Menikah, HP baru_\n\n` +
+        `_ketik *batal* untuk kembali_`,
+
+    askGoalTarget: (name) =>
+        `💵 *Nominal Target: ${name}*\n━━━━━━━━━━━━━━━━━\n` +
+        `Berapa total dana yang ingin dikumpulkan?\n` +
+        `_Contoh: 5000000 (untuk 5 jt)_\n\n` +
+        `_ketik *batal* untuk kembali_`,
 
     saved: (d, saldo, alert, from) => {
         const icon = d.tipe === 'masuk' ? '💰' : '💸';
@@ -142,6 +167,28 @@ const MSG = {
         const waId = from ? (from.includes('@') ? from.split('@')[0] : from) : '';
         return `https://wa-finance-tracker-dashboard.vercel.app/${waId ? '?id=' + waId : ''}`;
     },
+
+    help: () =>
+        `❓ *PANDUAN LENGKAP FINANCE BOT*\n━━━━━━━━━━━━━━━━━\n\n` +
+        `📝 *1. CATAT MANUAL (Teks)*\n` +
+        `Ketik langsung: \`[Nama] [Nominal]\`\n` +
+        `_Contoh:_\n` +
+        `• gopay 50k\n` +
+        `• bensin 25rb\n` +
+        `• gaji 5jt\n\n` +
+        `📸 *2. CATAT VIA FOTO*\n` +
+        `Kirim foto struk belanja otomatis!\n\n` +
+        `🧮 *3. SPLIT BILL (Patungan)*\n` +
+        `Kirim foto struk dengan caption "split" atau "patungan".\n` +
+        `_Contoh caption: "split dong. Aku nasi goreng, andi mie ayam, siska es teh"_\n\n` +
+        `🎙️ *4. CATAT VIA VOICE NOTE*\n` +
+        `Malas ngetik? Kirim VN ke bot!\n` +
+        `_Contoh: "tadi habis beli kopi lima puluh ribu"_\n\n` +
+        `🧠 *5. RAG ANALYTICS (Tanya Jawab AI)*\n` +
+        `Tanya apapun tentang keuanganmu bulan ini!\n` +
+        `_Contoh: "Berapa total jajan kopiku?" atau "Apakah aku masih aman beli sepatu 500rb?"_\n\n` +
+        `⚙️ *FITUR LAIN*\n` +
+        `• *menu*, *saldo*, *budget*, *laporan*`,
 
     cancelled: () => `❌ *Dibatalkan.*\n\nKetik *menu* untuk kembali.`,
 

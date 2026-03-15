@@ -7,6 +7,7 @@ class DatabaseService {
         this._trxRepo = repositories.transaction;
         this._budgetRepo = repositories.budget;
         this._categoryRepo = repositories.category;
+        this._goalRepo = repositories.goal;
         this.logger = logger;
     }
 
@@ -14,6 +15,7 @@ class DatabaseService {
     get trxRepo() { return this._trxRepo; }
     get budgetRepo() { return this._budgetRepo; }
     get categoryRepo() { return this._categoryRepo; }
+    get goalRepo() { return this._goalRepo; }
 
     async getOrCreateProfile(waNumber, nama) {
         const profile = await this.userRepo.findByWa(waNumber);
@@ -71,7 +73,7 @@ class DatabaseService {
             sumber_dokumen: sumber || 'WA Bot',
             confidence_ai: Math.round(ai.confidence),
             status_validasi: ai.status,
-            catatan: catatan || '',
+            catatan: ai.klasifikasi_503020 ? `[AI: ${ai.klasifikasi_503020}] ${catatan || ''}`.trim() : (catatan || ''),
             tipe: tipe || 'keluar',
         };
 

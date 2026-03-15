@@ -30,13 +30,18 @@ const UserRepository = require('./repositories/userRepository')
 const CategoryRepository = require('./repositories/categoryRepository')
 const BudgetRepository = require('./repositories/budgetRepository')
 const OTPRepository = require('./repositories/otpRepository')
+const GoalRepository = require('./repositories/goalRepository')
+const budget = new BudgetRepository(supabase, logger)
+const otp = new OTPRepository(supabase, logger)
+const goal = new GoalRepository(supabase, logger)
 
 const repositories = {
   transaction: new TransactionRepository(supabase, logger),
   user: new UserRepository(supabase, logger),
   category: new CategoryRepository(supabase, logger),
-  budget: new BudgetRepository(supabase, logger),
-  otp: new OTPRepository(supabase, logger)
+  budget,
+  otp,
+  goal
 }
 
 /* ================================
@@ -50,7 +55,9 @@ const BudgetService = require('./services/budgetService')
 const TransactionService = require('./services/transactionService')
 const CategoryService = require('./services/categoryService')
 const ExportService = require('./services/exportService')
+const SplitBillService = require('./services/splitBillService')
 
+const PersonaService = require('./services/personaService')
 const ReportService = require('./services/reportService')
 const InsightService = require('./services/insightService')
 const AILearningService = require('./services/aiLearningService')
@@ -64,6 +71,7 @@ const AnomalyService = require('./services/anomalyService')
 const DashboardService = require('./services/dashboardService')
 const OTPService = require('./services/otpService')
 const RAGService = require('./services/ragService')
+const GoalService = require('./services/goalService')
 
 const dbService = new DatabaseService(repositories, logger)
 
@@ -86,7 +94,10 @@ const coachService = new CoachService(dbService, logger)
 const healthScoreService = new HealthScoreService(dbService, logger)
 const dashboardService = new DashboardService(dbService, logger)
 const otpService = new OTPService(repositories.otp, logger)
+const goalService = new GoalService(dbService, repositories.goal, logger)
 const ragService = new RAGService(dbService, budgetService, logger)
+const splitBillService = new SplitBillService(supabase, logger)
+const personaService = new PersonaService(logger)
 
 const services = {
   db: dbService,
@@ -108,7 +119,10 @@ const services = {
   anomaly: anomalyService,
   dashboard: dashboardService,
   otp: otpService,
-  rag: ragService
+  rag: ragService,
+  splitBill: splitBillService,
+  goal: goalService,
+  persona: personaService
 }
 
 /* ================================

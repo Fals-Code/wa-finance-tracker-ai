@@ -130,7 +130,12 @@ class AIService {
                 messages: [
                     {
                         role: 'system',
-                        content: `Kamu AI kategorisasi transaksi keuangan Indonesia. Jawab HANYA format JSON: {"kategori":"...","sub_kategori":"...","confidence":0-100}`
+                        content: `Kamu AI kategorisasi transaksi keuangan Indonesia. Jawab HANYA format JSON: {"kategori":"...","sub_kategori":"...","klasifikasi_503020":"...","confidence":0-100}. 
+                        
+Klasifikasi 503020 hanya boleh: 
+- "Needs" (Kebutuhan pokok: makan, transport, tagihan, kesehatan)
+- "Wants" (Gaya hidup/keinginan: hobi, jajan, hiburan)
+- "Savings" (Tabungan/Investasi: dana darurat, saham, cicilan aset)`
                     },
                     {
                         role: 'user',
@@ -147,6 +152,7 @@ class AIService {
             return {
                 kategori: parsed.kategori || 'Lain-lain',
                 sub: parsed.sub_kategori || 'Uncategorized',
+                klasifikasi_503020: parsed.klasifikasi_503020 || 'Needs',
                 confidence: conf,
                 status: conf >= 80 ? '🤖 AI' : '🤖 AI (Review)',
                 matched: null,

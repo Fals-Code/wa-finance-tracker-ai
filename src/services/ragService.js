@@ -2,9 +2,10 @@ const groqClient = require('../integrations/groqClient');
 const { getStartAndEndOfMonth } = require('../utils/dateUtils'); // assuming this exists, if not I will use inline JS dates
 
 class RAGService {
-    constructor(dbService, budgetService, logger) {
-        this.db = dbService;
-        this.budget = budgetService;
+    constructor(services, logger) {
+        this.db = services.db;
+        this.budget = services.budget;
+        this.persona = services.persona;
         this.logger = logger;
     }
 
@@ -24,8 +25,7 @@ class RAGService {
             const month = date.getMonth() + 1; // 1-indexed for budget
 
             // Get current month's transactions
-            const now = new Date();
-            const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+            const { start: startOfMonth } = getStartAndEndOfMonth(date);
             
             // Using existing repository method
             const transactions = await this.db.trxRepo.getByWaNumber(waNumber, {
@@ -82,16 +82,15 @@ class RAGService {
             }
 
             // 3. Build Prompt
-            const systemPrompt = `Kamu adalah Asisten Keuangan Pribadi yang cerdas, ramah, dan proaktif di WhatsApp.
-Tugas utamamu adalah menjawab pertanyaan user berdasarkan [DATA KEUANGAN] yang diberikan.
+            const persona = this.persona.getPersona(waNumber);
+            const systemPrompt = `${persona.prompt}\n\nTugas utamamu adalah menjawab pertanyaan user berdasarkan [DATA KEUANGAN] yang diberikan.
 
 ATURAN:
 1. Jawab secara ringkas, jelas, dan santai (gunakan emoji secukupnya).
 2. Jika user bertanya "apakah saya bisa membeli X seharga Y", bandingkan harga Y dengan Sisa Budget. Beri peringatan jika melebihi budget atau membuat sisa budget terlalu menipis.
 3. Jika data tidak ada, sampaikan bahwa user belum mencatatnya.
-4. Gunakan sapaan ramah seperti "Kamu" atau "Kak".
-5. JANGAN membuat-buat data. Hanya gunakan data di context.
-6. Format angka menggunakan Rupiah, contoh Rp 50.000.`;
+4. JANGAN membuat-buat data. Hanya gunakan data di context.
+5. Format angka menggunakan Rupiah, contoh Rp 50.000.`;
 
             const payload = {
                 model: 'llama-3.3-70b-versatile', // very smart model for RAG reasoning

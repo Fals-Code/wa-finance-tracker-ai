@@ -27,6 +27,7 @@ class MessageHandler {
         this.predictionService = services.prediction;
         this.otpService       = services.otp;
         this.ragService       = services.rag;
+        this.goalService      = services.goal;
         this.exportService    = services.exportService;
         this.scheduler        = null; // injected via index.js
         this.logger           = logger;
@@ -546,6 +547,47 @@ class MessageHandler {
             }
 
             // ── DEFAULT ──────────────────────────────────────────────
+            case 'await_persona_selection':
+                return this.handlePersonaSelection(msg, from, text, lower, cur);
+
+            // ── AWAIT GOAL (SAVING GOALS) ──────────────────────────
+            case 'await_goal_menu':
+                if (lower === '1') {
+                    resetState(from);
+                    return msg.reply(await this.goalService.getGoalStatusMessage(from));
+                }
+                if (lower === '2') {
+                    setState(from, 'await_goal_name', {});
+                    return msg.reply(MSG.askGoalName());
+                }
+                return msg.reply(`❓ Pilih *1* Lihat Target atau *2* Tambah Target.\nKetik *batal* untuk kembali.`);
+
+            case 'await_goal_name':
+                setState(from, 'await_goal_target', { name: text });
+                return msg.reply(MSG.askGoalTarget(text));
+
+            case 'await_goal_target': {
+                const nominal = parseInt(text.replace(/\D/g, ''));
+                if (isNaN(nominal) || nominal <= 0) {
+                    return msg.reply(`❌ Nominal target tidak valid. Contoh: \`5000000\`\n\nCoba lagi:`);
+                }
+                try {
+                    await this.goalService.addGoal(from, cur.data.name, nominal);
+                    resetState(from);
+                    return msg.reply(
+                        `✅ *Target Tabungan Berhasil Ditambahkan!*\n━━━━━━━━━━━━━━━━━\n` +
+                        `🎯 Target: *${cur.data.name}*\n` +
+                        `💵 Jumlah: *Rp ${nominal.toLocaleString('id-ID')}*\n\n` +
+                        `Bot akan memantau progresmu tiap kali ada uang masuk/simpanan.\n\n` +
+                        `Ketik *target* untuk melihat progres.`
+                    );
+                } catch (e) {
+                    this.logger.error({ from, err: e.message }, 'Failed to add goal');
+                    resetState(from);
+                    return msg.reply(`❌ Gagal menyimpan target: ${e.message}`);
+                }
+            }
+
             default:
                 this.logger.warn({ from, step: cur.step }, 'Unknown state');
                 resetState(from);
@@ -617,6 +659,10 @@ class MessageHandler {
         }
         if (['dashboard', 'web'].includes(lower))
             return msg.reply(MSG.dashboard(from));
+        
+        if (lower === '/persona' || lower === 'persona') {
+            return this.showPersonaMenu(msg, from);
+        }
 
         // --- Phrase laporan ---
         if (lower.includes('laporan hari ini'))  return msg.reply(await this.reportService.getDailyReport(from));
@@ -631,7 +677,7 @@ class MessageHandler {
             return msg.reply(`${stats}\n\n❤️ *Health Score:* ${health.score}/100 — ${health.label}`);
         }
         if (lower === '/coach')  return msg.reply(await this.coachService.getAdvice(from));
-        if (lower === '/pola') {
+        if (lower === '/pola' || lower === 'pola') {
             const pattern     = await this.patternService.getAnomalies(from);
             const predictions = await this.predictionService.predictPatterns(from);
             let response = pattern || '✅ Pola pengeluaran masih stabil.';
@@ -639,6 +685,16 @@ class MessageHandler {
                 response += `\n\n🔮 *Prediksi Kebiasaan:*\n` + predictions.join('\n');
             }
             return msg.reply(response);
+        }
+
+        if (lower === 'target' || lower === 'goal' || lower === 'tabungan') {
+            setState(from, 'await_goal_menu', {});
+            return msg.reply(MSG.goalMenu());
+        }
+
+        if (lower === 'health' || lower === 'skor') {
+            const health = await this.healthService.calculateScore(from);
+            return msg.reply(`❤️ *Kesehatan Keuangan Kamu*\n━━━━━━━━━━━━━━━━━\nSkor: *${health.score}/100*\nStatus: ${health.label}\n\n📊 *Detail Metrics:*\n• Saving Rate: ${health.metrics.savingRate}%\n• Pemakaian Budget: ${health.metrics.budgetUsage}%\n• Konsistensi Catat: ${health.metrics.txCount} transaksi`);
         }
 
         // --- Interactive RAG / Q&A ---
@@ -723,6 +779,48 @@ class MessageHandler {
             this.logger.error({ from, err: e.message }, 'Export failed');
             await msg.reply('❌ Gagal export. Coba lagi nanti.\n\nKetik *menu* untuk kembali.');
         }
+    }
+
+    async showPersonaMenu(msg, from) {
+        const personas = this.personaService.getAvailablePersonas();
+        let menuMsg = `🎭 *Pilih Persona AI Coach*\n━━━━━━━━━━━━━━━━━\n`;
+        menuMsg += `Ubah kepribadian asisten keuanganmu:\n\n`;
+        
+        const keys = Object.keys(personas);
+        keys.forEach((key, i) => {
+            const p = personas[key];
+            menuMsg += `*${i+1}.* ${p.emoji} *${p.name}*\n   _${p.description}_\n\n`;
+        });
+        
+        menuMsg += `_Balas angka 1-${keys.length} untuk memilih_\n`;
+        menuMsg += `_Ketik *batal* untuk kembali_`;
+        
+        setState(from, 'await_persona_selection', { keys });
+        return msg.reply(menuMsg);
+    }
+
+    async handlePersonaSelection(msg, from, text, lower, cur) {
+        if (lower === 'batal') {
+            resetState(from);
+            return msg.reply('❌ Perubahan persona dibatalkan.');
+        }
+
+        const choice = parseInt(lower);
+        if (isNaN(choice) || choice < 1 || choice > cur.keys.length) {
+            return msg.reply(`⚠️ Pilih nomor 1-${cur.keys.length} atau ketik *batal*.`);
+        }
+
+        const selectedKey = cur.keys[choice - 1];
+        this.personaService.setPersona(from, selectedKey);
+        const p = this.personaService.getPersona(from);
+        
+        resetState(from);
+        return msg.reply(
+            `✅ *Persona Berhasil Diubah!*\n\n` +
+            `Sekarang AI Coach kamu adalah: *${p.emoji} ${p.name}*\n` +
+            `_${p.description}_\n\n` +
+            `Ketik *titipan nasehat* atau tanya apapun untuk mencobanya!`
+        );
     }
 }
 

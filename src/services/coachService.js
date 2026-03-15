@@ -6,8 +6,9 @@
 const groqClient = require('../integrations/groqClient');
 
 class CoachService {
-    constructor(dbService, logger) {
-        this.db = dbService;
+    constructor(services, logger) {
+        this.db = services.db;
+        this.persona = services.persona;
         this.logger = logger;
     }
 
@@ -72,8 +73,9 @@ class CoachService {
                 contextStr += `- 3 Top Kategori Pengeluaran: ${topCats.map(c => `${c[0]} (Rp ${c[1].toLocaleString('id-ID')})`).join(', ')}`;
             }
 
-            let sysPrompt = `Kamu adalah AI Financial Coach di WhatsApp.
-Evaluasi [Data] user.
+            const persona = this.persona.getPersona(waNumber);
+
+            let sysPrompt = `${persona.prompt}\n\nEvaluasi [Data] user. 
 Keluarkan response HANYA berupa JSON valid dengan 2 key:
 1. "shouldAlert": (boolean) true jika user pantas ditegur (misal: budget kritis padahal masih pertengahan bulan, pengeluaran hari ini nol bisa jadi lupa catat, atau over-spending parah). False jika semuanya aman dan normal. Jika mode == 'manual', SELALU isi true.
 2. "message": (string) Pesan nasehat atau peringatan ramah menggunakan emoji. Jika shouldAlert false, biarkan string kosong.
