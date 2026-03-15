@@ -58,7 +58,7 @@ const MSG = {
         `_ketik *batal* untuk kembali_`,
 
     saved: (d, saldo, alert, from) => {
-        const icon = d.tipe === 'masuk' ? '💰' : '💸';
+        const icon = d.tipe === 'masuk' ? '💸' : '💰';
         const tipeLabel = d.tipe === 'masuk' ? 'Pemasukan' : 'Pengeluaran';
         let msg = `✅ *Transaksi Berhasil Disimpan!*\n━━━━━━━━━━━━━━━━━\n`;
         msg += `${icon} *${d.judul}*\n`;
@@ -82,11 +82,11 @@ const MSG = {
     },
 
     confirm: (d) => {
-        const icon = d.tipe === 'masuk' ? '💰' : '💸';
+        const icon = d.tipe === 'masuk' ? '💸' : '💰';
         let msg = `🔍 *Konfirmasi Transaksi*\n━━━━━━━━━━━━━━━━━\n`;
         msg += `${icon} *${d.judul || d.toko}*\n\n`;
         msg += `┌─ Detail ────────────────\n`;
-        msg += `│ Tipe    : ${d.tipe === 'masuk' ? '💰 Pemasukan' : '💸 Pengeluaran'}\n`;
+        msg += `│ Tipe    : ${d.tipe === 'masuk' ? '💸 Pemasukan' : '💰 Pengeluaran'}\n`;
         msg += `│ Judul   : ${d.judul || '-'}\n`;
         if (d.isTransfer) {
             msg += `│ Penerima: ${d.toko}\n`;
@@ -110,12 +110,12 @@ const MSG = {
     chooseTipe: () =>
         `💳 *Catat Transaksi*\n━━━━━━━━━━━━━━━━━\n` +
         `Jenis transaksi:\n\n` +
-        `💸 *1. Pengeluaran* (bayar/beli)\n` +
-        `💰 *2. Pemasukan* (gaji/transfer masuk)\n\n` +
+        `💰 *1. Pengeluaran* (bayar/beli)\n` +
+        `💸 *2. Pemasukan* (gaji/transfer masuk)\n\n` +
         `_Balas 1 atau 2 | ketik *batal* untuk kembali_`,
 
     chooseMethod: (tipe) =>
-        `${tipe === 'masuk' ? '💰' : '💸'} *${tipe === 'masuk' ? 'Catat Pemasukan' : 'Catat Pengeluaran'}*\n━━━━━━━━━━━━━━━━━\n` +
+        `${tipe === 'masuk' ? '💸' : '💰'} *${tipe === 'masuk' ? 'Catat Pemasukan' : 'Catat Pengeluaran'}*\n━━━━━━━━━━━━━━━━━\n` +
         `Input lewat mana?\n\n` +
         `📝 *1. Teks Manual*\n` +
         `   Format: \`Nama Toko Nominal\`\n\n` +

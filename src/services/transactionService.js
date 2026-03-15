@@ -14,14 +14,14 @@ class TransactionService {
         TransactionValidator.validateConfirmation(data);
         this.logger.info({ event: 'transaction_saving', user: waNumber, judul: data.judul }, 'Executing save transaction flow');
         
-        await this.db.saveTransaction(waNumber, namaUser, data);
-        metrics.transactionCounter.inc({ type: data.tipe || 'keluar', category: data.ai?.kategori || 'Unknown' });
-        
         const budgetAlert = await this.budgetService.checkBudgetAlert(waNumber, data.ai?.kategori);
         const anomalyAlert = this.anomalyService 
              ? await this.anomalyService.checkAnomaly(waNumber, parseInt(data.nominal), data.judul || data.toko, data.ai?.kategori)
              : false;
 
+        await this.db.saveTransaction(waNumber, namaUser, data);
+        metrics.transactionCounter.inc({ type: data.tipe || 'keluar', category: data.ai?.kategori || 'Unknown' });
+        
         return [budgetAlert, anomalyAlert].filter(Boolean).join('\n\n');
     }
 
@@ -92,7 +92,7 @@ class TransactionService {
         msg += `\n*🕐 Terakhir:*\n`;
         for (const r of data.slice(0, 5)) {
             const tgl = new Date(r.tanggal).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
-            const icon = r.tipe === 'masuk' ? '💰' : '💸';
+            const icon = r.tipe === 'masuk' ? '💸' : '💰';
             const label = r.judul || r.deskripsi || r.nama_toko || 'Transaksi';
             msg += `${icon} ${tgl} ${label} — Rp ${parseInt(r.nominal).toLocaleString('id-ID')}\n`;
         }
@@ -152,7 +152,7 @@ class TransactionService {
         
         let msg = `📜 *RIWAYAT TRANSAKSI TERAKHIR*\n━━━━━━━━━━━━━━━━━━━━\n`;
         data.forEach((r, i) => {
-            const icon = r.tipe === 'masuk' ? '➕' : '➖';
+            const icon = r.tipe === 'masuk' ? '💸' : '💰';
             const label = r.judul || r.deskripsi || r.nama_toko || 'Transaksi';
             msg += `${i + 1}. [${r.tanggal}] ${icon} *${label}*\n   Rp ${parseInt(r.nominal).toLocaleString('id-ID')}\n`;
         });
