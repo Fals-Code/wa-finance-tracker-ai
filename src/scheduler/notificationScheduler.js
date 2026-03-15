@@ -85,6 +85,19 @@ class NotificationScheduler {
             if (this.jobs?.cleanup) await this.jobs.cleanup.run();
         });
 
+        // 5. Proactive AI Coach — setiap 09:00 pagi
+        cron.schedule('0 9 * * *', async () => {
+            await this.broadcast('Proactive AI Coach', async (wa) => {
+                if (this.jobs?.coach) {
+                    const advice = await this.jobs.coach.getAdvice(wa, true);
+                    if (advice && advice.shouldAlert && advice.message) {
+                        return `🧠 *AI Coach Alert*\n━━━━━━━━━━━━━━━━━\n${advice.message}`;
+                    }
+                }
+                return null;
+            });
+        });
+
         this.logger.info('Scheduler jobs initialized ✅');
     }
 

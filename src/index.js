@@ -63,11 +63,13 @@ const HealthScoreService = require('./services/healthScoreService')
 const AnomalyService = require('./services/anomalyService')
 const DashboardService = require('./services/dashboardService')
 const OTPService = require('./services/otpService')
+const RAGService = require('./services/ragService')
 
 const dbService = new DatabaseService(repositories, logger)
 
 const budgetService = new BudgetService(dbService, logger)
-const transactionService = new TransactionService(dbService, budgetService, logger)
+const anomalyService = new AnomalyService(dbService, logger)
+const transactionService = new TransactionService(dbService, budgetService, anomalyService, logger)
 const aiService = new AIService({ db: dbService, logger })
 const ocrService = new OCRService(logger)
 const categoryService = new CategoryService(dbService, logger)
@@ -82,9 +84,9 @@ const patternInsight = new PatternInsightService(dbService, logger)
 const predictionService = new PredictionService(dbService, logger)
 const coachService = new CoachService(dbService, logger)
 const healthScoreService = new HealthScoreService(dbService, logger)
-const anomalyService = new AnomalyService(dbService, logger)
 const dashboardService = new DashboardService(dbService, logger)
 const otpService = new OTPService(repositories.otp, logger)
+const ragService = new RAGService(dbService, budgetService, logger)
 
 const services = {
   db: dbService,
@@ -105,7 +107,8 @@ const services = {
   health: healthScoreService,
   anomaly: anomalyService,
   dashboard: dashboardService,
-  otp: otpService
+  otp: otpService,
+  rag: ragService
 }
 
 /* ================================
@@ -236,7 +239,7 @@ client.on('ready', async () => {
   const scheduler = new NotificationScheduler({
     client,
     logger,
-    jobs: { dailyReport: dailyReportJob, cleanup: cleanupJob }
+    jobs: { dailyReport: dailyReportJob, cleanup: cleanupJob, coach: coachService }
   })
   scheduler.init()
   
@@ -245,6 +248,42 @@ client.on('ready', async () => {
 
   // Load AI dataset
   await aiService.loadDataset().catch(e => logger.error(e))
+
+  // ✅ FIX: Listener untuk OTP Request dari Web Dashboard via Supabase Realtime
+  logger.info('Initializing OTP Realtime Listener...');
+  supabase.channel('bot-otp-listener')
+    .on(
+      'postgres_changes',
+      { event: 'UPDATE', schema: 'public', table: 'user_profiles' },
+      async (payload) => {
+        const newData = payload.new;
+        
+        // Cek jika authcode_requested adalah true dan ada authcode
+        if (newData.authcode_requested === true && newData.authcode) {
+          logger.info({ waNumber: newData.wa_number }, 'Detected OTP request from dashboard, sending to WA...');
+          try {
+            const target = newData.wa_number.includes('@') ? newData.wa_number : `${newData.wa_number}@c.us`;
+            
+            // Format pesan aman jika MSG.otpMessage tidak ada/error
+            let textMsg = `🔐 *KODE VERIFIKASI FINANCE TRACKER*\n\nKode OTP kamu adalah: *${newData.authcode}*\n\n_Masukkan kode ini di dashboard. Kode berlaku selama 10 menit. JANGAN BERIKAN KODE INI KEPADA SIAPAPUN._`;
+            if (typeof MSG.otpMessage === 'function') textMsg = MSG.otpMessage(newData.authcode);
+            
+            await client.sendMessage(target, textMsg);
+            logger.info({ waNumber: newData.wa_number }, 'OTP sent to WA successfully');
+
+            // Reset flag authcode_requested agar tidak dikirim ulang
+            await supabase.from('user_profiles')
+              .update({ authcode_requested: false })
+              .eq('wa_number', newData.wa_number);
+          } catch (err) {
+            logger.error({ waNumber: newData.wa_number, err: err.message }, 'Failed to send OTP to WA via Realtime event');
+          }
+        }
+      }
+    )
+    .subscribe((status) => {
+      logger.info({ status }, 'OTP Realtime Listener status:');
+    });
 })
 
 client.on('message', async (msg) => {

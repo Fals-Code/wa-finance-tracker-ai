@@ -2,10 +2,7 @@
  * OCR Service using Tesseract.js
  */
 
-const Tesseract = require('tesseract.js');
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
+const { callGroq } = require('../integrations/groqClient');
 const { metrics } = require('../utils/metrics');
 
 class OCRService {
@@ -13,29 +10,44 @@ class OCRService {
         this.logger = logger;
     }
 
-    async extractText(base64Image) {
-        const tmpFile = path.join(os.tmpdir(), `struk_${Date.now()}.jpg`);
-        fs.writeFileSync(tmpFile, Buffer.from(base64Image, 'base64'));
+    async extractText(base64Image, mimeType = 'image/jpeg') {
+        this.logger.info({ event: 'ocr_started' }, 'Starting Groq Vision OCR');
         
-        this.logger.info({ event: 'ocr_started', tmpFile }, 'Starting Tesseract OCR');
         try {
-            const result = await Tesseract.recognize(tmpFile, 'ind+eng');
-            this.logger.debug({ event: 'ocr_success' }, 'OCR successful');
+            const payload = {
+                model: 'llama-3.2-90b-vision-preview',
+                messages: [
+                    {
+                        role: 'user',
+                        content: [
+                            {
+                                type: 'text',
+                                text: 'Tolong ekstrak semua teks yang ada di gambar struk ini dengan sangat akurat. Pertahankan tata letaknya.'
+                            },
+                            {
+                                type: 'image_url',
+                                image_url: {
+                                    url: `data:${mimeType};base64,${base64Image}`
+                                }
+                            }
+                        ]
+                    }
+                ],
+                temperature: 0.1, // precision is key
+                max_tokens: 1024
+            };
+
+            const response = await callGroq(payload);
+            const text = response.choices[0].message.content;
+            
+            this.logger.debug({ event: 'ocr_success' }, 'Vision OCR successful');
             metrics.ocrCounter.inc({ result: 'success' });
-            return result.data.text;
+            return text;
+
         } catch (err) {
-            this.logger.error({ event: 'ocr_failed', err: err.message }, 'Tesseract OCR failed');
+            this.logger.error({ event: 'ocr_failed', err: err.message }, 'Groq Vision OCR failed');
             metrics.ocrCounter.inc({ result: 'failure' });
             throw err;
-        } finally {
-            try {
-                if (fs.existsSync(tmpFile)) {
-                    fs.unlinkSync(tmpFile);
-                    this.logger.debug({ tmpFile }, 'Cleaned up OCR temp file');
-                }
-            } catch (err) {
-                this.logger.warn({ err: err.message }, 'Cleanup OCR temp file failed');
-            }
         }
     }
 }

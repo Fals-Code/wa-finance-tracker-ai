@@ -1,0 +1,25 @@
+[dotenv@17.3.1] injecting env (4) from .env -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
+[dotenv@17.3.1] injecting env (0) from .env -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
+D:\Kuliah D4 TI\Semester 4\Kecerdasan Buatan\Projek\WA_Bot\my-wa-bot\src\config\env.js:15
+        throw new Error(`Environment variable ${key} is missing`);
+        ^
+
+Error: Environment variable SUPABASE_URL is missing
+    at Object.<anonymous> (D:\Kuliah D4 TI\Semester 4\Kecerdasan Buatan\Projek\WA_Bot\my-wa-bot\src\config\env.js:15:15)
+    at Module._compile (node:internal/modules/cjs/loader:1812:14)
+    at Object..js (node:internal/modules/cjs/loader:1943:10)
+    at Module.load (node:internal/modules/cjs/loader:1533:32)
+    at Module._load (node:internal/modules/cjs/loader:1335:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)
+    at Module.require (node:internal/modules/cjs/loader:1556:12)
+    at require (node:internal/modules/helpers:152:16)
+    at Object.<anonymous> (D:\Kuliah D4 TI\Semester 4\Kecerdasan Buatan\Projek\WA_Bot\my-wa-bot\src\index.js:19:13)
+    at Module._compile (node:internal/modules/cjs/loader:1812:14)
+    at Object..js (node:internal/modules/cjs/loader:1943:10)
+    at Module.load (node:internal/modules/cjs/loader:1533:32)
+    at Module._load (node:internal/modules/cjs/loader:1335:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47
+
+Node.js v24.14.0

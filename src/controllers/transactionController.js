@@ -50,17 +50,7 @@ class TransactionController {
                 );
             }
 
-            // Anomaly Detection
-            const isAnomaly = await this.anomalyService.checkAnomaly(from, nominal);
-            if (isAnomaly) {
-                setState(from, 'await_anomaly_confirm', { deskripsi, nominal, tipe, namaUser });
-                return msg.reply(
-                    `⚠️ *Nominal cukup besar — pastikan ini benar.*\n` +
-                    `Rp ${nominal.toLocaleString('id-ID')} jauh di atas rata-rata transaksimu.\n\n` +
-                    `1️⃣ Ya, benar\n` +
-                    `2️⃣ Tidak, batalkan`
-                );
-            }
+
 
             return await this.processValidatedInput(msg, from, deskripsi, nominal, tipe, namaUser);
         } catch (err) {

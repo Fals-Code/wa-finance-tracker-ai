@@ -26,6 +26,7 @@ class MessageHandler {
         this.healthService    = services.health;
         this.predictionService = services.prediction;
         this.otpService       = services.otp;
+        this.ragService       = services.rag;
         this.exportService    = services.exportService;
         this.scheduler        = null; // injected via index.js
         this.logger           = logger;
@@ -72,6 +73,10 @@ class MessageHandler {
 
         // 2. Handle Media
         if (msg.hasMedia) {
+            if (msg.type === 'ptt' || msg.type === 'audio') {
+                return await this.handleAudio(msg, from, namaUser, cur, lower);
+            }
+            
             if (['idle', 'menu', 'await_method', 'await_photo'].includes(cur.step)) {
                 return await this.media.handlePhoto(msg, from, namaUser);
             } else if (cur.step === 'await_text') {
@@ -100,6 +105,42 @@ class MessageHandler {
         // 5. Jika idle → langsung ke routeByCommand (jangan set menu dulu!)
         // Quick input "Indomaret 50000" harus langsung diproses, bukan dilempar ke menu
         return await this.routeByCommand(msg, from, text, lower, namaUser, cur);
+    }
+
+    // ================================================================
+    // HANDLE AUDIO (Voice Notes via Groq Whisper)
+    // ================================================================
+    async handleAudio(msg, from, namaUser, cur, lower) {
+        this.logger.info({ from }, 'Processing incoming Voice Note');
+        await msg.reply('🎙️ _Mendengarkan Voice Note... (Whisper AI)_');
+
+        try {
+            const media = await msg.downloadMedia().catch(() => null);
+            if (!media || !(media.mimetype.startsWith('audio/') || media.mimetype.startsWith('video/ogg'))) {
+                return msg.reply('❌ Format audio tidak didukung.');
+            }
+
+            const groqClient = require('../integrations/groqClient');
+            const buffer = Buffer.from(media.data, 'base64');
+            
+            const transcribedText = await groqClient.transcribeAudio(buffer, media.mimetype, 'voicenote.ogg');
+
+            if (!transcribedText || transcribedText.trim() === '') {
+                resetState(from);
+                return msg.reply('⚠️ Maaf, suara tidak tertangkap jelas. Silakan coba lagi.');
+            }
+
+            // Balas dengan transkrip text-nya agar user tahu apa yang ditangkap
+            await msg.reply(`🗣️ _"${transcribedText}"_`);
+
+            // Simulasikan seolah-olah user mengetik teks ini
+            const newLower = transcribedText.toLowerCase();
+            return await this.routeByCommand(msg, from, transcribedText, newLower, namaUser, cur);
+
+        } catch (err) {
+            this.logger.error({ from, error: err.message }, 'Failed to process audio');
+            return msg.reply('❌ Gagal memproses Voice Note: ' + err.message);
+        }
     }
 
     // ================================================================
@@ -598,6 +639,16 @@ class MessageHandler {
                 response += `\n\n🔮 *Prediksi Kebiasaan:*\n` + predictions.join('\n');
             }
             return msg.reply(response);
+        }
+
+        // --- Interactive RAG / Q&A ---
+        const questionWords = ['berapa', 'apakah', 'gimana', 'bagaimana', 'analisa', 'analisis', 'tolong jelaskan'];
+        const isQuestion = text.includes('?') || questionWords.some(w => lower.startsWith(w));
+        
+        if (isQuestion) {
+            await msg.reply('🧠 _Menganalisa data keuanganmu... (AI)_');
+            const answer = await this.ragService.answerQuestion(from, text);
+            return msg.reply(answer);
         }
 
         // --- Quick input: "Toko Nominal" ---

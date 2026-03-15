@@ -3,9 +3,10 @@ const ReceiptValidator = require('../validators/receiptValidator');
 const { metrics } = require('../utils/metrics');
 
 class TransactionService {
-    constructor(databaseService, budgetService, logger) {
+    constructor(databaseService, budgetService, anomalyService, logger) {
         this.db = databaseService;
         this.budgetService = budgetService;
+        this.anomalyService = anomalyService;
         this.logger = logger;
     }
 
@@ -16,7 +17,12 @@ class TransactionService {
         await this.db.saveTransaction(waNumber, namaUser, data);
         metrics.transactionCounter.inc({ type: data.tipe || 'keluar', category: data.ai?.kategori || 'Unknown' });
         
-        return await this.budgetService.checkBudgetAlert(waNumber, data.ai?.kategori);
+        const budgetAlert = await this.budgetService.checkBudgetAlert(waNumber, data.ai?.kategori);
+        const anomalyAlert = this.anomalyService 
+             ? await this.anomalyService.checkAnomaly(waNumber, parseInt(data.nominal), data.judul || data.toko, data.ai?.kategori)
+             : false;
+
+        return [budgetAlert, anomalyAlert].filter(Boolean).join('\n\n');
     }
 
     async isDuplicate(waNumber, nominal, deskripsi) {

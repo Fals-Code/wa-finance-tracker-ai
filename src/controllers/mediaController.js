@@ -22,7 +22,7 @@ class MediaController {
         await msg.reply('🔍 *Membaca foto...*\n⏳ _(5-15 detik)_');
 
         try {
-            const ocrText = await this.ocrService.extractText(media.data);
+            const ocrText = await this.ocrService.extractText(media.data, media.mimetype);
             this.logger.debug({ from, textLength: ocrText?.length }, 'OCR complete');
 
             ReceiptValidator.validateOCRResult(ocrText);
