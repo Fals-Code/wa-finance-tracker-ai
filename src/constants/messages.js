@@ -13,27 +13,25 @@ const MSG = {
         return (
             `📊 *FINANCE ASSISTANT*\n` +
             `━━━━━━━━━━━━━━━━━\n` +
-            `*📝 Catat Transaksi:*\n` +
-            `1️⃣  Catat Pengeluaran / Pemasukan\n\n` +
-            `*📈 Laporan & Data:*\n` +
-            `2️⃣  Laporan Bulan Ini\n` +
-            `3️⃣  Saldo & Ringkasan\n` +
-            `4️⃣  Riwayat Transaksi\n\n` +
-            `*⚙️ Pengaturan:*\n` +
-            `5️⃣  Atur Budget Bulanan\n` +
-            `6️⃣  Kategori Custom\n` +
-            `7️⃣  Export Data Excel\n` +
-            `8️⃣  Bantuan & Panduan\n` +
-            `9️⃣  Edit / Hapus Transaksi\n` +
-            `🔟  Pengaturan Notifikasi\n\n` +
+            `1. Catat Transaksi\n` +
+            `2. Laporan Bulan Ini\n` +
+            `3. Saldo & Ringkasan\n` +
+            `4. Riwayat Transaksi\n` +
+            `5. Atur Budget Bulanan\n` +
+            `6. Kategori Custom\n` +
+            `7. Export Data Excel\n` +
+            `8. Bantuan & Panduan\n` +
+            `9. Edit / Hapus Transaksi\n` +
+            `10. Pengaturan Notifikasi\n\n` +
             `*🧠 AI Intelligence:*\n` +
-            `🧠 *ai* — Tanya Jawab AI (RAG)\n` +
-            `❤️ *health* — Skor Kesehatan Keuangan\n` +
-            `🔮 *pola* — Prediksi & Insight Pola\n` +
-            `🎯 *target* — Atur & Pantau Tabungan\n` +
-            `🤖 *persona* — Ubah Kepribadian AI\n` +
+            `11. Tanya Jawab AI (RAG)\n` +
+            `12. Skor Kesehatan Keuangan\n` +
+            `13. Prediksi & Insight Pola\n` +
+            `14. Atur & Pantau Tabungan\n` +
+            `15. AI Coach (Saran Finansial)\n` +
+            `16. Ubah Kepribadian AI (Persona)\n` +
             `━━━━━━━━━━━━━━━━━\n` +
-            `_Balas angka 1-10 atau ketik perintah AI_\n\n` +
+            `_Balas angka 1-16_\n\n` +
             `💡 Langsung ketik transaksi:\n` +
             `_kopi 20k · bensin 50rb · gaji 5jt_\n\n` +
             `🌐 *Dashboard:* https://wa-finance-tracker-dashboard.vercel.app/${waId ? '?id=' + waId : ''}`
@@ -43,8 +41,8 @@ const MSG = {
     goalMenu: () =>
         `🎯 *Target Tabungan (Saving Goals)*\n━━━━━━━━━━━━━━━━━\n` +
         `Kelola target masa depanmu:\n\n` +
-        `1️⃣  Lihat Semua Target\n` +
-        `2️⃣  Tambah Target Baru\n\n` +
+        `1. Lihat Semua Target\n` +
+        `2. Tambah Target Baru\n\n` +
         `_Balas 1 atau 2 | ketik *batal* untuk kembali_`,
 
     askGoalName: () =>
@@ -75,10 +73,10 @@ const MSG = {
         if (alert) msg += `\n${alert}\n`;
         msg += `\n━━━━━━━━━━━━━━━━━\n`;
         msg += `*Selanjutnya:*\n`;
-        msg += `1️⃣ Catat transaksi lagi\n`;
-        msg += `2️⃣ Lihat laporan bulan ini\n`;
-        msg += `3️⃣ Cek saldo\n`;
-        msg += `4️⃣ Kembali ke menu\n\n`;
+        msg += `1. Catat transaksi lagi\n`;
+        msg += `2. Lihat laporan bulan ini\n`;
+        msg += `3. Cek saldo\n`;
+        msg += `4. Kembali ke menu\n\n`;
         msg += `_atau ketik *menu* untuk pilihan lain_`;
         return msg;
     },
@@ -100,11 +98,11 @@ const MSG = {
         if (d.ai.sub && d.ai.sub !== 'Uncategorized') msg += ` › ${d.ai.sub}`;
         msg += `\n│ AI Score: ${d.ai.status} ${Math.round(d.ai.confidence)}%\n`;
         msg += `└─────────────────────────\n\n`;
-        msg += `1️⃣ ✅ Simpan\n`;
-        msg += `2️⃣ ✏️ Ubah Judul\n`;
-        msg += `3️⃣ 💵 Ubah Nominal\n`;
-        msg += `4️⃣ ❌ Batal\n`;
-        msg += `5️⃣ 🧠 Koreksi Kategori _(bantu AI belajar)_\n\n`;
+        msg += `1. ✅ Simpan\n`;
+        msg += `2. ✏️ Ubah Judul\n`;
+        msg += `3. 💵 Ubah Nominal\n`;
+        msg += `4. ❌ Batal\n`;
+        msg += `5. 🧠 Koreksi Kategori _(bantu AI belajar)_\n\n`;
         msg += `_Balas angka 1-5_`;
         return msg;
     },
@@ -296,7 +294,7 @@ const MSG = {
         msg += `${icon} *${r.judul || r.deskripsi || r.nama_toko || 'Transaksi'}* (Rp ${parseInt(r.nominal).toLocaleString('id-ID')})\n`;
         msg += `🏷️ Kategori: ${r.kategori}\n\n`;
         msg += `Mau ubah apa?\n`;
-        msg += `1️⃣ Judul\n2️⃣ Nominal\n3️⃣ Kategori\n4️⃣ Catatan\n`;
+        msg += `1. Judul\n2. Nominal\n3. Kategori\n4. Catatan\n`;
         msg += `🗑️ Ketik *hapus* untuk menghapus\n`;
         msg += `━━━━━━━━━━━━━━━━━\n`;
         msg += `_Balas angka 1-4 atau ketik *hapus*_\n`;

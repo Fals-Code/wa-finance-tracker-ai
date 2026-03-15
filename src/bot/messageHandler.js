@@ -234,6 +234,43 @@ class MessageHandler {
                     case 'dashboard': case 'web':
                         return msg.reply(MSG.dashboard(from));
 
+                    // --- AI INTELLIGENCE (11) ---
+                    case '11': case 'ai': case 'tanya': case 'rag':
+                        setState(from, 'menu', {}); // Stay in menu or reset?
+                        return msg.reply('🧠 *Tanya Jawab AI*\n━━━━━━━━━━━━━━━━━\nSilakan ajukan pertanyaan tentang keuanganmu.\n_Contoh: Berapa total jajanku bulan ini?_');
+
+                    // --- HEALTH SCORE (12) ---
+                    case '12': case 'health': case 'skor': case 'kesehatan':
+                        await msg.reply('❤️ _Menganalisis kesehatan keuanganmu..._');
+                        const health = await this.healthService.calculateScore(from);
+                        return msg.reply(`❤️ *Kesehatan Keuangan Kamu*\n━━━━━━━━━━━━━━━━━\nSkor: *${health.score}/100*\nStatus: ${health.label}\n\n📊 *Detail Metrics:*\n• Saving Rate: ${health.metrics.savingRate}%\n• Pemakaian Budget: ${health.metrics.budgetUsage}%\n• Konsistensi Catat: ${health.metrics.txCount} transaksi`);
+
+                    // --- PATTERN & PREDICTION (13) ---
+                    case '13': case 'pola': case 'prediksi': case 'insight': {
+                        await msg.reply('🔮 _Menganalisa pola pengeluaran..._');
+                        const pattern     = await this.patternService.getAnomalies(from);
+                        const predictions = await this.predictionService.predictPatterns(from);
+                        let res = pattern || '✅ Pola pengeluaran masih stabil.';
+                        if (predictions && predictions.length > 0) {
+                            res += `\n\n🔮 *Prediksi Kebiasaan:*\n` + predictions.join('\n');
+                        }
+                        return msg.reply(res);
+                    }
+
+                    // --- SAVING GOALS (14) ---
+                    case '14': case 'target': case 'goal': case 'tabungan':
+                        setState(from, 'await_goal_menu', {});
+                        return msg.reply(MSG.goalMenu());
+
+                    // --- AI COACH (15) ---
+                    case '15': case 'coach': case 'saran':
+                        await msg.reply('🤖 _Meminta saran dari AI Coach..._');
+                        return msg.reply(await this.coachService.getAdvice(from).catch(e => '❌ ' + e.message));
+
+                    // --- PERSONA (16) ---
+                    case '16': case 'persona':
+                        return this.showPersonaMenu(msg, from);
+
                     // --- DEFAULT (quick input atau tidak dikenal) ---
                     default: {
                         // Coba deteksi quick input "Toko Nominal"
@@ -244,7 +281,7 @@ class MessageHandler {
                             );
                         }
                         return msg.reply(
-                            `❓ Pilih menu *1–10* atau ketik perintah.\n\n${MSG.menu(from)}`
+                            `❓ Pilih menu *1–16* atau ketik perintah.\n\n${MSG.menu(from)}`
                         );
                     }
                 }
@@ -676,7 +713,7 @@ class MessageHandler {
             const health = await this.healthService.calculateScore(from);
             return msg.reply(`${stats}\n\n❤️ *Health Score:* ${health.score}/100 — ${health.label}`);
         }
-        if (lower === '/coach')  return msg.reply(await this.coachService.getAdvice(from));
+        if (lower === '/coach' || lower === 'coach' || lower === 'saran')  return msg.reply(await this.coachService.getAdvice(from));
         if (lower === '/pola' || lower === 'pola') {
             const pattern     = await this.patternService.getAnomalies(from);
             const predictions = await this.predictionService.predictPatterns(from);
@@ -720,6 +757,15 @@ class MessageHandler {
                 ? `🔔 *Notifikasi AKTIF!*`
                 : `🔕 *Notifikasi DIMATIKAN.*`
             );
+        }
+
+        // --- Quick Menu Numbers (1-16) ---
+        if (/^\d+$/.test(lower)) {
+            const num = parseInt(lower);
+            if (num >= 1 && num <= 16) {
+                const menuState = { step: 'menu', data: {} };
+                return await this.routeByState(msg, from, menuState, text, lower, namaUser);
+            }
         }
 
         // --- Fallback → Welcome / Menu ---
