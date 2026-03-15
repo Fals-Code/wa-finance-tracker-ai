@@ -92,15 +92,13 @@ class MessageHandler {
         }
 
         // 4. State Handlers
-        // PENTING: state 'menu' HARUS masuk routeByState agar case '5'-'10' ter-handle
-        // Sebelumnya ada bug: `cur.step !== 'menu'` di-exclude → semua angka 5-10 fallback
+        // state 'menu' MASUK ke routeByState agar case '5'-'10' ter-handle
         if (cur.step !== 'idle') {
             return await this.routeByState(msg, from, cur, text, lower, namaUser);
         }
 
-        // 5. Jika idle, pastikan set state ke menu dulu sebelum routing command
-        // Ini memastikan pesan berikutnya sudah punya konteks
-        setState(from, 'menu', {});
+        // 5. Jika idle → langsung ke routeByCommand (jangan set menu dulu!)
+        // Quick input "Indomaret 50000" harus langsung diproses, bukan dilempar ke menu
         return await this.routeByCommand(msg, from, text, lower, namaUser, cur);
     }
 
@@ -515,18 +513,18 @@ class MessageHandler {
     }
 
     // ================================================================
-    // ROUTE BY COMMAND
-    // Dipanggil saat user di state idle. State sudah di-set ke 'menu' sebelumnya.
-    // Juga handle angka 1-10 agar user yang baru saja melihat menu bisa langsung pilih.
+    // ROUTE BY COMMAND — called when state is idle
+    // also handles angka 1-10 agar user bisa pilih menu dari idle
     // ================================================================
     async routeByCommand(msg, from, text, lower, namaUser, cur) {
         this.logger.debug({ from, command: lower }, 'Routing by command');
 
-        // --- Angka menu 1-10: redirect ke routeByState dengan state 'menu' ---
-        // Ini fix agar user yang idle tapi ketik angka tetap ter-handle
+        // --- Angka menu 1-10: set state 'menu' lalu route ---
+        // Ini fix agar user yang idle tapi ketik angka (1-10) tetap ter-handle
         if (/^([1-9]|10)$/.test(lower.trim())) {
-            const fakeMenuState = { step: 'menu', data: {}, lastActive: Date.now() };
-            return await this.routeByState(msg, from, fakeMenuState, text, lower, namaUser);
+            setState(from, 'menu', {});
+            const menuState = getState(from);
+            return await this.routeByState(msg, from, menuState, text, lower, namaUser);
         }
 
         // --- Global command aliases ---
